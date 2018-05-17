@@ -86,6 +86,7 @@ class MetricsPanelCtrl extends PanelCtrl {
       .get(this.panel.datasource, this.panel.scopedVars)
       .then(this.updateTimeRange.bind(this))
       .then(this.issueQueries.bind(this))
+      .then(this.compareQueries.bind(this))
       .then(this.handleQueryResult.bind(this))
       .catch(err => {
         // if canceled  keep loading set to true
@@ -171,10 +172,90 @@ class MetricsPanelCtrl extends PanelCtrl {
 
     return datasource.query(metricsQuery);
   }
+  compareData: any;
+  compareQueries(result) {
+    if (!this.panel.compareTime) {
+      return result;
+    }
+    var timeShiftInterpolated = this.templateSrv.replace(this.panel.compareTime, this.panel.scopedVars);
+    var timeShiftInfo = rangeUtil.describeTextRange(timeShiftInterpolated);
+    if (timeShiftInfo.invalid) {
+      // this.timeInfo = 'invalid timeshift';
+      return result;
+    }
 
-  handleQueryResult(result) {
+    var scopedVars = Object.assign({}, this.panel.scopedVars, {
+      __interval: { text: this.interval, value: this.interval },
+      __interval_ms: { text: this.intervalMs, value: this.intervalMs },
+    });
+    var timeShift = '-' + timeShiftInterpolated;
+    console.log(this.range);
+    console.log(typeof this.range.from);
+    var time1 = this.range.from.clone();
+    console.log(time1);
+    var time2 = this.range.to.clone();
+    var from = dateMath.parseDateMath(timeShift, time1, false);
+    var to = dateMath.parseDateMath(timeShift, time2, true);
+    var raw = { from: from, to: to };
+
+    var rangeC = { from: from, to: to, raw: raw };
+    var metricsQuery2 = {
+      timezone: this.dashboard.getTimezone(),
+      panelId: this.panel.id,
+      dashboardId: this.dashboard.id,
+      range: rangeC,
+      rangeRaw: raw,
+      interval: this.interval,
+      intervalMs: this.intervalMs,
+      targets: this.panel.targets,
+      maxDataPoints: this.resolution,
+      scopedVars: scopedVars,
+      cacheTimeout: this.panel.cacheTimeout,
+    };
+    var c = this.datasource.query(metricsQuery2);
+    this.compareData = result;
+    return c;
+  }
+  getCompareData(result, compareTime, compareTimeName) {
+    // var result = res.$$state.value;
+
+    if (!result || !result.data) {
+      console.log('Data source query result invalid, missing data field:', result);
+      result = { data: [] };
+      return result;
+    }
+    var timeShiftInterpolated = this.templateSrv.replace(this.panel.compareTime, this.panel.scopedVars);
+    var timeShiftInfo = rangeUtil.describeTextRange(timeShiftInterpolated);
+    if (timeShiftInfo.invalid) {
+      // this.timeInfo = 'invalid timeshift';
+      return result;
+    }
+    var timeShift = '+' + timeShiftInterpolated;
+    var t1 = dateMath.parseMillsTime(timeShift);
+    for (var i = 0; i < result.data.length; i++) {
+      var r = result.data[i];
+      r.target = compareTimeName ? r.target + ' - ' + compareTimeName : r.target + ' - ' + compareTime;
+      for (var j = 0; j < r.datapoints.length; j++) {
+        var len = r.datapoints[j].length;
+        var t = r.datapoints[j][len - 1];
+        r.datapoints[j][len - 1] = t + t1;
+      }
+    }
+    return result;
+  }
+  handleQueryResult(res) {
+    this.setTimeQueryEnd();
     this.loading = false;
-
+    var result = res;
+    //check compare
+    if (this.panel.compareTime) {
+      result = this.compareData;
+      var d = [];
+      result.data = d.concat(
+        result.data,
+        this.getCompareData(res, this.panel.compareTime, this.panel.compareTimeName).data
+      );
+    }
     // check for if data source returns subject
     if (result && result.subscribe) {
       this.handleDataStream(result);

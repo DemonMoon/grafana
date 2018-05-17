@@ -20,6 +20,7 @@ class GraphCtrl extends MetricsPanelCtrl {
   hiddenSeries: any = {};
   seriesList: TimeSeries[] = [];
   dataList: LegacyResponseData[] = [];
+  seriesDiff: any = [];
   annotations: any = [];
   alertState: any;
 
@@ -108,6 +109,9 @@ class GraphCtrl extends MetricsPanelCtrl {
     // time overrides
     timeFrom: null,
     timeShift: null,
+    compareTime: null,
+    compareTimeName: null,
+    seriesDiffs: [],
     // metric queries
     targets: [{}],
     // series color overrides
@@ -141,6 +145,8 @@ class GraphCtrl extends MetricsPanelCtrl {
     this.addEditorTab('Display options', 'public/app/plugins/panel/graph/tab_display.html');
     this.addEditorTab('Axes', axesEditorComponent);
     this.addEditorTab('Legend', 'public/app/plugins/panel/graph/tab_legend.html');
+    this.addEditorTab('Compare', 'public/app/plugins/panel/graph/compare.html');
+
     this.addEditorTab('Thresholds & Time Regions', 'public/app/plugins/panel/graph/tab_thresholds_time_regions.html');
     this.subTabIndex = 0;
   }
@@ -235,11 +241,76 @@ class GraphCtrl extends MetricsPanelCtrl {
       return;
     }
 
-    for (const series of this.seriesList) {
+    var diffs = [];
+    for (let diff of this.panel.seriesDiffs) {
+      if (!diff.aliasDiffA || !diff.aliasDiffB || !diff.aliasOper) {
+        continue;
+      }
+      var a = this.getSeries(diff.aliasDiffA);
+      var b = this.getSeries(diff.aliasDiffB);
+      if (!a || !b) {
+        continue;
+      }
+      var t = diff.name ? diff.name : a.alias + diff.aliasOper + b.alias;
+      var datalist = { datapoints: this.diffList(a.datapoints, b.datapoints, diff.aliasOper), target: t };
+      diffs.push(datalist);
+    }
+
+    var s1 = this.processor.getSeriesList({
+      dataList: diffs,
+      range: this.range,
+    });
+    for (let s of this.seriesDiff) {
+      var i = this.seriesList.indexOf(s);
+      if (i >= 0) {
+        this.seriesList.splice(i, 1);
+      }
+    }
+    this.seriesDiff = s1;
+    for (let s of s1) {
+      this.seriesList.push(s);
+    }
+    for (let series of this.seriesList) {
       series.applySeriesOverrides(this.panel.seriesOverrides);
 
       if (series.unit) {
         this.panel.yaxes[series.yaxis - 1].format = series.unit;
+      }
+    }
+  }
+  diffList(d1, d2, oper) {
+    var dd = [];
+    for (var i = 0; i < d1.length; i++) {
+      var a1 = d1[i];
+      var a2 = d2[i];
+      var d = [];
+      for (var j = 0; j < a1.length - 1; j++) {
+        d[j] = this.diff(a1[j], a2[j], oper);
+      }
+      d[a1.length - 1] = a1[a1.length - 1];
+      dd.push(d);
+    }
+    return dd;
+  }
+  diff(d1, d2, oper) {
+    switch (oper) {
+      case '+':
+        return d1 + d2;
+      case '-':
+        return d1 - d2;
+      case '/':
+        return (d1 * 100) / d2;
+      case '*':
+        return d1 * d2;
+      default:
+        // code...
+        return 0;
+    }
+  }
+  getSeries(name) {
+    for (let series of this.seriesList) {
+      if (series.alias === name) {
+        return series;
       }
     }
   }
@@ -279,7 +350,14 @@ class GraphCtrl extends MetricsPanelCtrl {
     this.panel.seriesOverrides = _.without(this.panel.seriesOverrides, override);
     this.render();
   }
-
+  //add
+  removeSeriesDiff(override) {
+    this.panel.seriesDiffs = _.without(this.panel.seriesDiffs, override);
+    this.render();
+  }
+  addSeriesDiff(override) {
+    this.panel.seriesDiffs.push(override || {});
+  }
   toggleLegend() {
     this.panel.legend.show = !this.panel.legend.show;
     this.render();
