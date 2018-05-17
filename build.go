@@ -144,7 +144,7 @@ func packageGrafana() {
 	grunt(postProcessArgs...)
 	pkgArch = previousPkgArch
 
-	if goos == "linux" {
+	if goos == "linux" && goarch == "amd64"{
 		createLinuxPackages()
 	}
 }
