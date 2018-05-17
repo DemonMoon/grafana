@@ -1,0 +1,80 @@
+<div class="gf-form-group">
+  <div class="gf-form">
+		<span class="gf-form-label">
+			<i class="fa fa-clock-o"></i>
+		</span>
+
+    <span class="gf-form-label width-12">Compare before time</span>
+
+    <input type="text" class="gf-form-input max-width-8" placeholder="1h"
+           empty-to-null ng-model="ctrl.panel.compareTime" valid-time-span
+           ng-change="ctrl.refresh()" ng-model-onblur></input>
+    <input type="text" class="gf-form-input max-width-8" placeholder="alias"
+           ng-model="ctrl.panel.compareTimeName" ng-change="ctrl.refresh()" ng-model-onblur></input>
+  </div>
+
+
+</div>
+<div class="edit-tab-with-sidemenu">
+  <aside class="edit-sidemenu-aside">
+    <ul class="edit-sidemenu">
+      <li ng-class="{active: ctrl.subTabIndex === 0}">
+        <a ng-click="ctrl.subTabIndex = 0">Diff</a>
+      </li>
+
+    </ul>
+  </aside>
+  <div class="edit-tab-content" ng-if="ctrl.subTabIndex === 0">
+    <div class="gf-form-group">
+      <h5>Series inner diff <tip>Regex like A/B </tip></h5>
+      <div class="gf-form-inline" ng-repeat="override in ctrl.panel.seriesDiffs" ng-controller="SeriesOverridesCtrl">
+        <div class="gf-form">
+          <label class="gf-form-label">alias diff</label>
+        </div>
+        <div class="gf-form width-15">
+          <input type="text" ng-model="override.aliasDiffA" bs-typeahead="getSeriesNames" ng-blur="ctrl.render()" data-min-length=0 data-items=100 class="gf-form-input width-15">
+        </div>
+        <div class="gf-form-select-wrapper">
+          <select class="gf-form-input max-width-9" ng-model="override.aliasOper" ng-options="f for f in ['/', '*', '+' , '-']" ng-change="ctrl.render()"></select>
+        </div>
+        <div class="gf-form width-15">
+          <input type="text" ng-model="override.aliasDiffB" bs-typeahead="getSeriesNames" ng-blur="ctrl.render()" data-min-length=0 data-items=100 class="gf-form-input width-15">
+        </div>
+        <div class="gf-form width-15">
+          <input type="text" ng-model="override.name" ng-blur="ctrl.render()" placeholder="alias" data-min-length=0 data-items=100 class="gf-form-input width-15">
+        </div>
+        <!-- <div class="gf-form" ng-repeat="option in currentOverrides">
+                    <label class="gf-form-label">
+                        <i class="pointer fa fa-remove" ng-click="removeOverride(option)"></i>
+                        <span ng-show="option.propertyName === 'color'">
+                            Color: <i class="fa fa-circle" ng-style="{color:option.value}"></i>
+                        </span>
+                        <span ng-show="option.propertyName !== 'color'">
+                            {{option.name}}: {{option.value}}
+                        </span>
+                    </label>
+                </div> -->
+
+        <!-- <div class="gf-form">
+                    <span class="dropdown" dropdown-typeahead="overrideMenu" dropdown-typeahead-on-select="setOverride($item, $subItem)">
+                    </span>
+                </div>
+ -->
+        <div class="gf-form gf-form--grow">
+          <div class="gf-form-label gf-form-label--grow"></div>
+        </div>
+
+        <div class="gf-form">
+          <label class="gf-form-label">
+            <i class="fa fa-trash pointer" ng-click="ctrl.removeSeriesDiff(override)"></i>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn btn-inverse" ng-click="ctrl.addSeriesDiff()">
+      <i class="fa fa-plus"></i>&nbsp;Add Diff
+    </button>
+  </div>
+
+</div>
