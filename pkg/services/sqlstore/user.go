@@ -47,10 +47,9 @@ func getOrgIdForNewUser(cmd *m.CreateUserCommand, sess *DBSession) (int64, error
 		}
 		if has {
 			return org.Id, nil
-		} else {
-			org.Name = "Main Org."
-			org.Id = 1
 		}
+		org.Name = "Main Org."
+		org.Id = 1
 	} else {
 		org.Name = cmd.OrgName
 		if len(org.Name) == 0 {
@@ -61,8 +60,14 @@ func getOrgIdForNewUser(cmd *m.CreateUserCommand, sess *DBSession) (int64, error
 	org.Created = time.Now()
 	org.Updated = time.Now()
 
-	if _, err := sess.Insert(&org); err != nil {
-		return 0, err
+	if org.Id != 0 {
+		if _, err := sess.InsertId(&org); err != nil {
+			return 0, err
+		}
+	} else {
+		if _, err := sess.InsertOne(&org); err != nil {
+			return 0, err
+		}
 	}
 
 	sess.publishAfterCommit(&events.OrgCreated{
@@ -99,9 +104,10 @@ func CreateUser(cmd *m.CreateUserCommand) error {
 			LastSeenAt:    time.Now().AddDate(-10, 0, 0),
 		}
 
+		user.Salt = util.GetRandomString(10)
+		user.Rands = util.GetRandomString(10)
+
 		if len(cmd.Password) > 0 {
-			user.Salt = util.GetRandomString(10)
-			user.Rands = util.GetRandomString(10)
 			user.Password = util.EncodePassword(cmd.Password, user.Salt)
 		}
 
@@ -168,11 +174,9 @@ func GetUserByLogin(query *m.GetUserByLoginQuery) error {
 		return m.ErrUserNotFound
 	}
 
-	user := new(m.User)
-
 	// Try and find the user by login first.
 	// It's not sufficient to assume that a LoginOrEmail with an "@" is an email.
-	user = &m.User{Login: query.LoginOrEmail}
+	user := &m.User{Login: query.LoginOrEmail}
 	has, err := x.Get(user)
 
 	if err != nil {
@@ -202,9 +206,7 @@ func GetUserByEmail(query *m.GetUserByEmailQuery) error {
 		return m.ErrUserNotFound
 	}
 
-	user := new(m.User)
-
-	user = &m.User{Email: query.Email}
+	user := &m.User{Email: query.Email}
 	has, err := x.Get(user)
 
 	if err != nil {
@@ -289,14 +291,18 @@ func SetUsingOrg(cmd *m.SetUsingOrgCommand) error {
 	}
 
 	return inTransaction(func(sess *DBSession) error {
-		user := m.User{
-			Id:    cmd.UserId,
-			OrgId: cmd.OrgId,
-		}
-
-		_, err := sess.Id(cmd.UserId).Update(&user)
-		return err
+		return setUsingOrgInTransaction(sess, cmd.UserId, cmd.OrgId)
 	})
+}
+
+func setUsingOrgInTransaction(sess *DBSession, userID int64, orgID int64) error {
+	user := m.User{
+		Id:    userID,
+		OrgId: orgID,
+	}
+
+	_, err := sess.Id(userID).Update(&user)
+	return err
 }
 
 func GetUserProfile(query *m.GetUserProfileQuery) error {

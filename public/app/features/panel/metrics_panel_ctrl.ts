@@ -1,11 +1,12 @@
-import config from 'app/core/config';
 import $ from 'jquery';
 import _ from 'lodash';
+
+import config from 'app/core/config';
 import kbn from 'app/core/utils/kbn';
 import { PanelCtrl } from 'app/features/panel/panel_ctrl';
-
 import * as rangeUtil from 'app/core/utils/rangeutil';
 import * as dateMath from 'app/core/utils/datemath';
+import { encodePathComponent } from 'app/core/utils/location_util';
 
 import { metricsTabDirective } from './metrics_tab';
 
@@ -15,6 +16,7 @@ class MetricsPanelCtrl extends PanelCtrl {
   datasourceName: any;
   $q: any;
   $timeout: any;
+  contextSrv: any;
   datasourceSrv: any;
   timeSrv: any;
   templateSrv: any;
@@ -36,6 +38,7 @@ class MetricsPanelCtrl extends PanelCtrl {
     // make metrics tab the default
     this.editorTabIndex = 1;
     this.$q = $injector.get('$q');
+    this.contextSrv = $injector.get('contextSrv');
     this.datasourceSrv = $injector.get('datasourceSrv');
     this.timeSrv = $injector.get('timeSrv');
     this.templateSrv = $injector.get('templateSrv');
@@ -220,7 +223,7 @@ class MetricsPanelCtrl extends PanelCtrl {
     // and add built in variables interval and interval_ms
     var scopedVars = Object.assign({}, this.panel.scopedVars, {
       __interval: { text: this.interval, value: this.interval },
-      __interval_ms: { text: this.intervalMs, value: this.intervalMs },
+      __interval_ms: { text: String(this.intervalMs), value: String(this.intervalMs) },
     });
 
     var metricsQuery = {
@@ -387,6 +390,29 @@ class MetricsPanelCtrl extends PanelCtrl {
     this.datasourceName = datasource.name;
     this.datasource = null;
     this.refresh();
+  }
+
+  getAdditionalMenuItems() {
+    const items = [];
+    if (config.exploreEnabled && this.contextSrv.isEditor && this.datasource && this.datasource.supportsExplore) {
+      items.push({
+        text: 'Explore',
+        click: 'ctrl.explore();',
+        icon: 'fa fa-fw fa-rocket',
+        shortcut: 'x',
+      });
+    }
+    return items;
+  }
+
+  explore() {
+    const range = this.timeSrv.timeRangeForUrl();
+    const state = {
+      ...this.datasource.getExploreState(this.panel),
+      range,
+    };
+    const exploreState = encodePathComponent(JSON.stringify(state));
+    this.$location.url(`/explore/${exploreState}`);
   }
 
   addQuery(target) {

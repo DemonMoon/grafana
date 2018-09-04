@@ -3,6 +3,7 @@ package cloudwatch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
@@ -144,6 +145,10 @@ func (e *CloudWatchExecutor) executeQuery(ctx context.Context, parameters *simpl
 		return nil, err
 	}
 
+	if endTime.Before(startTime) {
+		return nil, fmt.Errorf("Invalid time range: End time can't be before start time")
+	}
+
 	params := &cloudwatch.GetMetricStatisticsInput{
 		Namespace:  aws.String(query.Namespace),
 		MetricName: aws.String(query.MetricName),
@@ -271,7 +276,7 @@ func parseQuery(model *simplejson.Json) (*CloudWatchQuery, error) {
 		}
 	}
 
-	period := 300
+	var period int
 	if regexp.MustCompile(`^\d+$`).Match([]byte(p)) {
 		period, err = strconv.Atoi(p)
 		if err != nil {

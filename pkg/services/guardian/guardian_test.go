@@ -162,6 +162,11 @@ func TestGuardianViewer(t *testing.T) {
 			sc.parentFolderPermissionScenario(VIEWER, m.PERMISSION_EDIT, EDITOR_ACCESS)
 			sc.parentFolderPermissionScenario(VIEWER, m.PERMISSION_VIEW, VIEWER_ACCESS)
 		})
+
+		apiKeyScenario("Given api key with viewer role", t, m.ROLE_VIEWER, func(sc *scenarioContext) {
+			// dashboard has default permissions
+			sc.defaultPermissionScenario(VIEWER, m.PERMISSION_EDIT, VIEWER_ACCESS)
+		})
 	})
 }
 
@@ -267,7 +272,7 @@ func (sc *scenarioContext) verifyExpectedPermissionsFlags() {
 			actualFlag = NO_ACCESS
 		}
 
-		if sc.expectedFlags&actualFlag != sc.expectedFlags {
+		if actualFlag&sc.expectedFlags != actualFlag {
 			sc.reportFailure(tc, sc.expectedFlags.String(), actualFlag.String())
 		}
 
@@ -649,6 +654,9 @@ func (sc *scenarioContext) verifyUpdateChildDashboardPermissionsWithOverrideShou
 			}
 
 			_, err := sc.g.CheckPermissionBeforeUpdate(m.PERMISSION_ADMIN, permissionList)
+			if err != nil {
+				sc.reportFailure(tc, nil, err)
+			}
 			sc.updatePermissions = permissionList
 			ok, err := sc.g.CheckPermissionBeforeUpdate(m.PERMISSION_ADMIN, permissionList)
 

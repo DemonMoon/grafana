@@ -47,6 +47,18 @@ describe('Prometheus Result Transformer', () => {
         { text: 'Value' },
       ]);
     });
+
+    it('should column title include refId if response count is more than 2', () => {
+      var table = ctx.resultTransformer.transformMetricDataToTable(response.data.result, 2, 'B');
+      expect(table.type).toBe('table');
+      expect(table.columns).toEqual([
+        { text: 'Time', type: 'time' },
+        { text: '__name__' },
+        { text: 'instance' },
+        { text: 'job' },
+        { text: 'Value #B' },
+      ]);
+    });
   });
 
   describe('When resultFormat is table and instant = true', () => {
@@ -112,6 +124,84 @@ describe('Prometheus Result Transformer', () => {
         { target: '1', datapoints: [[10, 1445000010000], [10, 1445000020000], [0, 1445000030000]] },
         { target: '2', datapoints: [[10, 1445000010000], [0, 1445000020000], [30, 1445000030000]] },
         { target: '3', datapoints: [[10, 1445000010000], [0, 1445000020000], [10, 1445000030000]] },
+      ]);
+    });
+  });
+
+  describe('When resultFormat is time series', () => {
+    it('should transform matrix into timeseries', () => {
+      const response = {
+        status: 'success',
+        data: {
+          resultType: 'matrix',
+          result: [
+            {
+              metric: { __name__: 'test', job: 'testjob' },
+              values: [[0, '10'], [1, '10'], [2, '0']],
+            },
+          ],
+        },
+      };
+      let result = [];
+      let options = {
+        format: 'timeseries',
+        start: 0,
+        end: 2,
+      };
+
+      ctx.resultTransformer.transform(result, { data: response }, options);
+      expect(result).toEqual([{ target: 'test{job="testjob"}', datapoints: [[10, 0], [10, 1000], [0, 2000]] }]);
+    });
+
+    it('should fill timeseries with null values', () => {
+      const response = {
+        status: 'success',
+        data: {
+          resultType: 'matrix',
+          result: [
+            {
+              metric: { __name__: 'test', job: 'testjob' },
+              values: [[1, '10'], [2, '0']],
+            },
+          ],
+        },
+      };
+      let result = [];
+      let options = {
+        format: 'timeseries',
+        step: 1,
+        start: 0,
+        end: 2,
+      };
+
+      ctx.resultTransformer.transform(result, { data: response }, options);
+      expect(result).toEqual([{ target: 'test{job="testjob"}', datapoints: [[null, 0], [10, 1000], [0, 2000]] }]);
+    });
+
+    it('should align null values with step', () => {
+      const response = {
+        status: 'success',
+        data: {
+          resultType: 'matrix',
+          result: [
+            {
+              metric: { __name__: 'test', job: 'testjob' },
+              values: [[4, '10'], [8, '10']],
+            },
+          ],
+        },
+      };
+      let result = [];
+      let options = {
+        format: 'timeseries',
+        step: 2,
+        start: 0,
+        end: 8,
+      };
+
+      ctx.resultTransformer.transform(result, { data: response }, options);
+      expect(result).toEqual([
+        { target: 'test{job="testjob"}', datapoints: [[null, 0], [null, 2000], [10, 4000], [null, 6000], [10, 8000]] },
       ]);
     });
   });
