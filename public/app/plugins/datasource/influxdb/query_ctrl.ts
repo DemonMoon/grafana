@@ -1,14 +1,14 @@
 import angular from 'angular';
 import _ from 'lodash';
 import { InfluxQueryBuilder } from './query_builder';
-import InfluxQuery from './influx_query';
+import InfluxQueryModel from './influx_query_model';
 import queryPart from './query_part';
 import { QueryCtrl } from 'app/plugins/sdk';
 
 export class InfluxQueryCtrl extends QueryCtrl {
   static templateUrl = 'partials/query.editor.html';
 
-  queryModel: InfluxQuery;
+  queryModel: InfluxQueryModel;
   queryBuilder: any;
   groupBySegment: any;
   resultFormats: any[];
@@ -23,7 +23,7 @@ export class InfluxQueryCtrl extends QueryCtrl {
   constructor($scope, $injector, private templateSrv, private $q, private uiSegmentSrv) {
     super($scope, $injector);
     this.target = this.target;
-    this.queryModel = new InfluxQuery(this.target, templateSrv, this.panel.scopedVars);
+    this.queryModel = new InfluxQueryModel(this.target, templateSrv, this.panel.scopedVars);
     this.queryBuilder = new InfluxQueryBuilder(this.target, this.datasource.database);
     this.groupBySegment = this.uiSegmentSrv.newPlusButton();
     this.resultFormats = [{ text: 'Time series', value: 'time_series' }, { text: 'Table', value: 'table' }];
@@ -70,7 +70,7 @@ export class InfluxQueryCtrl extends QueryCtrl {
     const categories = queryPart.getCategories();
     this.selectMenu = _.reduce(
       categories,
-      function(memo, cat, key) {
+      (memo, cat, key) => {
         const menu = {
           text: key,
           submenu: cat.map(item => {
@@ -100,6 +100,9 @@ export class InfluxQueryCtrl extends QueryCtrl {
         if (!this.target.slimit) {
           options.push(this.uiSegmentSrv.newSegment({ value: 'SLIMIT' }));
         }
+        if (!this.target.tz) {
+          options.push(this.uiSegmentSrv.newSegment({ value: 'tz' }));
+        }
         if (this.target.orderByTime === 'ASC') {
           options.push(this.uiSegmentSrv.newSegment({ value: 'ORDER BY time DESC' }));
         }
@@ -122,6 +125,10 @@ export class InfluxQueryCtrl extends QueryCtrl {
       }
       case 'SLIMIT': {
         this.target.slimit = 10;
+        break;
+      }
+      case 'tz': {
+        this.target.tz = 'UTC';
         break;
       }
       case 'ORDER BY time DESC': {

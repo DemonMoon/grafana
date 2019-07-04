@@ -2,12 +2,25 @@ import _ from 'lodash';
 import $ from 'jquery';
 import 'vendor/flot/jquery.flot';
 import 'vendor/flot/jquery.flot.gauge';
-import 'app/features/panellinks/link_srv';
+import 'app/features/panel/panellinks/link_srv';
+import { getDecimalsForValue } from '@grafana/ui';
 
 import kbn from 'app/core/utils/kbn';
 import config from 'app/core/config';
 import TimeSeries from 'app/core/time_series2';
 import { MetricsPanelCtrl } from 'app/plugins/sdk';
+import { GrafanaThemeType, getValueFormat, getColorFromHexRgbOrName, isTableData } from '@grafana/ui';
+import { auto } from 'angular';
+import { LinkSrv } from 'app/features/panel/panellinks/link_srv';
+import TableModel from 'app/core/table_model';
+
+const BASE_FONT_SIZE = 38;
+
+interface DataFormat {
+  value: string | number;
+  valueFormatted: string;
+  valueRounded: number;
+}
 
 class SingleStatCtrl extends MetricsPanelCtrl {
   static templateUrl = 'module.html';
@@ -36,7 +49,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
   tableColumnOptions: any;
 
   // Set and populate defaults
-  panelDefaults = {
+  panelDefaults: any = {
     links: [],
     datasource: null,
     maxDataPoints: 100,
@@ -63,6 +76,8 @@ class SingleStatCtrl extends MetricsPanelCtrl {
     sparkline: {
       show: false,
       full: false,
+      ymin: null,
+      ymax: null,
       lineColor: 'rgb(31, 120, 193)',
       fillColor: 'rgba(31, 118, 189, 0.18)',
     },
@@ -77,7 +92,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
   };
 
   /** @ngInject */
-  constructor($scope, $injector, private linkSrv) {
+  constructor($scope: any, $injector: auto.IInjectorService, private linkSrv: LinkSrv, private $sanitize: any) {
     super($scope, $injector);
     _.defaults(this.panel, this.panelDefaults);
 
@@ -97,18 +112,21 @@ class SingleStatCtrl extends MetricsPanelCtrl {
     this.unitFormats = kbn.getUnitFormats();
   }
 
-  setUnitFormat(subItem) {
+  setUnitFormat(subItem: { value: any }) {
     this.panel.format = subItem.value;
     this.refresh();
   }
 
-  onDataError(err) {
+  onDataError(err: any) {
     this.onDataReceived([]);
   }
 
-  onDataReceived(dataList) {
-    const data: any = {};
-    if (dataList.length > 0 && dataList[0].type === 'table') {
+  onDataReceived(dataList: any[]) {
+    const data: any = {
+      scopedVars: _.extend({}, this.panel.scopedVars),
+    };
+
+    if (dataList.length > 0 && isTableData(dataList[0])) {
       this.dataType = 'table';
       const tableData = dataList.map(this.tableHandler.bind(this));
       this.setTableValues(tableData, data);
@@ -117,23 +135,24 @@ class SingleStatCtrl extends MetricsPanelCtrl {
       this.series = dataList.map(this.seriesHandler.bind(this));
       this.setValues(data);
     }
+
     this.data = data;
     this.render();
   }
 
-  seriesHandler(seriesData) {
+  seriesHandler(dataFrame: any) {
     const series = new TimeSeries({
-      datapoints: seriesData.datapoints || [],
-      alias: seriesData.target,
+      datapoints: dataFrame.datapoints || [],
+      alias: dataFrame.target,
     });
 
     series.flotpairs = series.getFlotPairs(this.panel.nullPointMode);
     return series;
   }
 
-  tableHandler(tableData) {
-    const datapoints = [];
-    const columnNames = {};
+  tableHandler(tableData: TableModel) {
+    const datapoints: any[] = [];
+    const columnNames: string[] = [];
 
     tableData.columns.forEach((column, columnIndex) => {
       columnNames[columnIndex] = column.text;
@@ -145,9 +164,9 @@ class SingleStatCtrl extends MetricsPanelCtrl {
     }
 
     tableData.rows.forEach(row => {
-      const datapoint = {};
+      const datapoint: any = {};
 
-      row.forEach((value, columnIndex) => {
+      row.forEach((value: any, columnIndex: number) => {
         const key = columnNames[columnIndex];
         datapoint[key] = value;
       });
@@ -158,7 +177,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
     return datapoints;
   }
 
-  setTableColumnToSensibleDefault(tableData) {
+  setTableColumnToSensibleDefault(tableData: TableModel) {
     if (tableData.columns.length === 1) {
       this.panel.tableColumn = tableData.columns[0].text;
     } else {
@@ -168,7 +187,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
     }
   }
 
-  setTableValues(tableData, data) {
+  setTableValues(tableData: any[], data: DataFormat) {
     if (!tableData || tableData.length === 0) {
       return;
     }
@@ -185,14 +204,15 @@ class SingleStatCtrl extends MetricsPanelCtrl {
       data.value = 0;
       data.valueRounded = 0;
     } else {
-      const decimalInfo = this.getDecimalsForValue(data.value);
-      const formatFunc = kbn.valueFormats[this.panel.format];
+      const decimalInfo = getDecimalsForValue(data.value, this.panel.decimals);
+      const formatFunc = getValueFormat(this.panel.format);
+
       data.valueFormatted = formatFunc(
         datapoint[this.panel.tableColumn],
         decimalInfo.decimals,
         decimalInfo.scaledDecimals
       );
-      data.valueRounded = kbn.roundValue(data.value, this.panel.decimals || 0);
+      data.valueRounded = kbn.roundValue(data.value, decimalInfo.decimals);
     }
 
     this.setValueMapping(data);
@@ -202,7 +222,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
     return !this.panel.gauge.show;
   }
 
-  setColoring(options) {
+  setColoring(options: { background: any }) {
     if (options.background) {
       this.panel.colorValue = false;
       this.panel.colors = ['rgba(71, 212, 59, 0.4)', 'rgba(245, 150, 40, 0.73)', 'rgba(225, 40, 40, 0.59)'];
@@ -220,65 +240,24 @@ class SingleStatCtrl extends MetricsPanelCtrl {
     this.render();
   }
 
-  onColorChange(panelColorIndex) {
-    return color => {
+  onColorChange(panelColorIndex: number) {
+    return (color: string) => {
       this.panel.colors[panelColorIndex] = color;
       this.render();
     };
   }
 
-  onSparklineColorChange(newColor) {
+  onSparklineColorChange(newColor: string) {
     this.panel.sparkline.lineColor = newColor;
     this.render();
   }
 
-  onSparklineFillChange(newColor) {
+  onSparklineFillChange(newColor: string) {
     this.panel.sparkline.fillColor = newColor;
     this.render();
   }
 
-  getDecimalsForValue(value) {
-    if (_.isNumber(this.panel.decimals)) {
-      return { decimals: this.panel.decimals, scaledDecimals: null };
-    }
-
-    const delta = value / 2;
-    let dec = -Math.floor(Math.log(delta) / Math.LN10);
-
-    const magn = Math.pow(10, -dec);
-    const norm = delta / magn; // norm is between 1.0 and 10.0
-    let size;
-
-    if (norm < 1.5) {
-      size = 1;
-    } else if (norm < 3) {
-      size = 2;
-      // special case for 2.5, requires an extra decimal
-      if (norm > 2.25) {
-        size = 2.5;
-        ++dec;
-      }
-    } else if (norm < 7.5) {
-      size = 5;
-    } else {
-      size = 10;
-    }
-
-    size *= magn;
-
-    // reduce starting decimals if not needed
-    if (Math.floor(value) === value) {
-      dec = 0;
-    }
-
-    const result: any = {};
-    result.decimals = Math.max(0, dec);
-    result.scaledDecimals = result.decimals - Math.floor(Math.log(size) / Math.LN10) + 2;
-
-    return result;
-  }
-
-  setValues(data) {
+  setValues(data: any) {
     data.flotpairs = [];
 
     if (this.series.length > 1) {
@@ -293,8 +272,9 @@ class SingleStatCtrl extends MetricsPanelCtrl {
     }
 
     if (this.series && this.series.length > 0) {
-      const lastPoint = _.last(this.series[0].datapoints);
+      const lastPoint: any = _.last(this.series[0].datapoints);
       const lastValue = _.isArray(lastPoint) ? lastPoint[0] : null;
+      const formatFunc = getValueFormat(this.panel.format);
 
       if (this.panel.valueName === 'name') {
         data.value = 0;
@@ -305,28 +285,31 @@ class SingleStatCtrl extends MetricsPanelCtrl {
         data.valueFormatted = _.escape(lastValue);
         data.valueRounded = 0;
       } else if (this.panel.valueName === 'last_time') {
-        const formatFunc = kbn.valueFormats[this.panel.format];
         data.value = lastPoint[1];
         data.valueRounded = data.value;
-        data.valueFormatted = formatFunc(data.value, this.dashboard.isTimezoneUtc());
+        data.valueFormatted = formatFunc(data.value, 0, 0, this.dashboard.isTimezoneUtc());
       } else {
         data.value = this.series[0].stats[this.panel.valueName];
         data.flotpairs = this.series[0].flotpairs;
 
-        const decimalInfo = this.getDecimalsForValue(data.value);
-        const formatFunc = kbn.valueFormats[this.panel.format];
-        data.valueFormatted = formatFunc(data.value, decimalInfo.decimals, decimalInfo.scaledDecimals);
+        const decimalInfo = getDecimalsForValue(data.value, this.panel.decimals);
+
+        data.valueFormatted = formatFunc(
+          data.value,
+          decimalInfo.decimals,
+          decimalInfo.scaledDecimals,
+          this.dashboard.isTimezoneUtc()
+        );
         data.valueRounded = kbn.roundValue(data.value, decimalInfo.decimals);
       }
 
       // Add $__name variable for using in prefix or postfix
-      data.scopedVars = _.extend({}, this.panel.scopedVars);
       data.scopedVars['__name'] = { value: this.series[0].label };
     }
     this.setValueMapping(data);
   }
 
-  setValueMapping(data) {
+  setValueMapping(data: DataFormat) {
     // check value to text mappings if its enabled
     if (this.panel.mappingType === 1) {
       for (let i = 0; i < this.panel.valueMaps.length; i++) {
@@ -374,7 +357,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
     }
   }
 
-  removeValueMap(map) {
+  removeValueMap(map: any) {
     const index = _.indexOf(this.panel.valueMaps, map);
     this.panel.valueMaps.splice(index, 1);
     this.render();
@@ -384,7 +367,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
     this.panel.valueMaps.push({ value: '', op: '=', text: '' });
   }
 
-  removeRangeMap(rangeMap) {
+  removeRangeMap(rangeMap: any) {
     const index = _.indexOf(this.panel.rangeMaps, rangeMap);
     this.panel.rangeMaps.splice(index, 1);
     this.render();
@@ -394,18 +377,19 @@ class SingleStatCtrl extends MetricsPanelCtrl {
     this.panel.rangeMaps.push({ from: '', to: '', text: '' });
   }
 
-  link(scope, elem, attrs, ctrl) {
+  link(scope: any, elem: JQuery, attrs: any, ctrl: any) {
     const $location = this.$location;
     const linkSrv = this.linkSrv;
     const $timeout = this.$timeout;
+    const $sanitize = this.$sanitize;
     const panel = ctrl.panel;
     const templateSrv = this.templateSrv;
-    let data, linkInfo;
+    let data: any, linkInfo: { target: string; href: string; title: string };
     const $panelContainer = elem.find('.panel-container');
     elem = elem.find('.singlestat-panel');
 
-    function applyColoringThresholds(value, valueString) {
-      const color = getColorForValue(data, value);
+    function applyColoringThresholds(valueString: string) {
+      const color = getColorForValue(data, data.value);
       if (color) {
         return '<span style="color:' + color + '">' + valueString + '</span>';
       }
@@ -413,34 +397,24 @@ class SingleStatCtrl extends MetricsPanelCtrl {
       return valueString;
     }
 
-    function getSpan(className, fontSize, value) {
-      value = templateSrv.replace(value, data.scopedVars);
-      return '<span class="' + className + '" style="font-size:' + fontSize + '">' + value + '</span>';
+    function getSpan(className: string, fontSizePercent: string, applyColoring: any, value: string) {
+      value = $sanitize(templateSrv.replace(value, data.scopedVars));
+      value = applyColoring ? applyColoringThresholds(value) : value;
+      const pixelSize = (parseInt(fontSizePercent, 10) / 100) * BASE_FONT_SIZE;
+      return '<span class="' + className + '" style="font-size:' + pixelSize + 'px">' + value + '</span>';
     }
 
     function getBigValueHtml() {
       let body = '<div class="singlestat-panel-value-container">';
 
       if (panel.prefix) {
-        let prefix = panel.prefix;
-        if (panel.colorPrefix) {
-          prefix = applyColoringThresholds(data.value, panel.prefix);
-        }
-        body += getSpan('singlestat-panel-prefix', panel.prefixFontSize, prefix);
+        body += getSpan('singlestat-panel-prefix', panel.prefixFontSize, panel.colorPrefix, panel.prefix);
       }
 
-      let value = data.valueFormatted;
-      if (panel.colorValue) {
-        value = applyColoringThresholds(data.value, value);
-      }
-      body += getSpan('singlestat-panel-value', panel.valueFontSize, value);
+      body += getSpan('singlestat-panel-value', panel.valueFontSize, panel.colorValue, data.valueFormatted);
 
       if (panel.postfix) {
-        let postfix = panel.postfix;
-        if (panel.colorPostfix) {
-          postfix = applyColoringThresholds(data.value, panel.postfix);
-        }
-        body += getSpan('singlestat-panel-postfix', panel.postfixFontSize, postfix);
+        body += getSpan('singlestat-panel-postfix', panel.postfixFontSize, panel.colorPostfix, panel.postfix);
       }
 
       body += '</div>';
@@ -470,7 +444,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
 
       const plotCanvas = $('<div></div>');
       const plotCss = {
-        top: '10px',
+        top: '5px',
         margin: 'auto',
         position: 'relative',
         height: height * 0.9 + 'px',
@@ -480,6 +454,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
       plotCanvas.css(plotCss);
 
       const thresholds = [];
+
       for (let i = 0; i < data.thresholds.length; i++) {
         thresholds.push({
           value: data.thresholds[i],
@@ -493,7 +468,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
 
       const bgColor = config.bootData.user.lightTheme ? 'rgb(230,230,230)' : 'rgb(38,38,38)';
 
-      const fontScale = parseInt(panel.valueFontSize) / 100;
+      const fontScale = parseInt(panel.valueFontSize, 10) / 100;
       const fontSize = Math.min(dimension / 5, 100) * fontScale;
       // Reduce gauge width if threshold labels enabled
       const gaugeWidthReduceRatio = panel.gauge.thresholdLabels ? 1.5 : 1;
@@ -501,7 +476,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
       const thresholdMarkersWidth = gaugeWidth / 5;
       const thresholdLabelFontSize = fontSize / 2.5;
 
-      const options = {
+      const options: any = {
         series: {
           gauges: {
             gauge: {
@@ -528,12 +503,12 @@ class SingleStatCtrl extends MetricsPanelCtrl {
             },
             value: {
               color: panel.colorValue ? getColorForValue(data, data.valueRounded) : null,
-              formatter: function() {
+              formatter: () => {
                 return getValueText();
               },
               font: {
                 size: fontSize,
-                family: '"Helvetica Neue", Helvetica, Arial, sans-serif',
+                family: config.theme.typography.fontFamily.sansSerif,
               },
             },
             show: true,
@@ -544,14 +519,14 @@ class SingleStatCtrl extends MetricsPanelCtrl {
       elem.append(plotCanvas);
 
       const plotSeries = {
-        data: [[0, data.valueRounded]],
+        data: [[0, data.value]],
       };
 
       $.plot(plotCanvas, [plotSeries], options);
     }
 
     function addSparkline() {
-      const width = elem.width() + 20;
+      const width = elem.width();
       if (width < 30) {
         // element has not gotten it's width yet
         // delay sparkline render
@@ -563,17 +538,16 @@ class SingleStatCtrl extends MetricsPanelCtrl {
       const plotCanvas = $('<div></div>');
       const plotCss: any = {};
       plotCss.position = 'absolute';
+      plotCss.bottom = '0px';
 
       if (panel.sparkline.full) {
-        plotCss.bottom = '5px';
-        plotCss.left = '-5px';
-        plotCss.width = width - 10 + 'px';
+        plotCss.left = '0px';
+        plotCss.width = width + 'px';
         const dynamicHeightMargin = height <= 100 ? 5 : Math.round(height / 100) * 15 + 5;
         plotCss.height = height - dynamicHeightMargin + 'px';
       } else {
-        plotCss.bottom = '0px';
-        plotCss.left = '-5px';
-        plotCss.width = width - 10 + 'px';
+        plotCss.left = '0px';
+        plotCss.width = width + 'px';
         plotCss.height = Math.floor(height * 0.25) + 'px';
       }
 
@@ -585,12 +559,16 @@ class SingleStatCtrl extends MetricsPanelCtrl {
           lines: {
             show: true,
             fill: 1,
-            zero: false,
             lineWidth: 1,
-            fillColor: panel.sparkline.fillColor,
+            fillColor: getColorFromHexRgbOrName(panel.sparkline.fillColor, config.theme.type),
+            zero: false,
           },
         },
-        yaxes: { show: false },
+        yaxis: {
+          show: false,
+          min: panel.sparkline.ymin,
+          max: panel.sparkline.ymax,
+        },
         xaxis: {
           show: false,
           mode: 'time',
@@ -604,7 +582,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
 
       const plotSeries = {
         data: data.flotpairs,
-        color: panel.sparkline.lineColor,
+        color: getColorFromHexRgbOrName(panel.sparkline.lineColor, config.theme.type),
       };
 
       $.plot(plotCanvas, [plotSeries], options);
@@ -617,15 +595,23 @@ class SingleStatCtrl extends MetricsPanelCtrl {
       data = ctrl.data;
 
       // get thresholds
-      data.thresholds = panel.thresholds.split(',').map(function(strVale) {
+      data.thresholds = panel.thresholds.split(',').map((strVale: string) => {
         return Number(strVale.trim());
       });
-      data.colorMap = panel.colors;
+
+      // Map panel colors to hex or rgb/a values
+      data.colorMap = panel.colors.map((color: string) =>
+        getColorFromHexRgbOrName(
+          color,
+          config.bootData.user.lightTheme ? GrafanaThemeType.Light : GrafanaThemeType.Dark
+        )
+      );
 
       const body = panel.gauge.show ? '' : getBigValueHtml();
 
       if (panel.colorBackground) {
         const color = getColorForValue(data, data.value);
+        console.log(color);
         if (color) {
           $panelContainer.css('background-color', color);
           if (scope.fullscreen) {
@@ -633,6 +619,9 @@ class SingleStatCtrl extends MetricsPanelCtrl {
           } else {
             elem.css('background-color', '');
           }
+        } else {
+          $panelContainer.css('background-color', '');
+          elem.css('background-color', '');
         }
       } else {
         $panelContainer.css('background-color', '');
@@ -652,7 +641,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
       elem.toggleClass('pointer', panel.links.length > 0);
 
       if (panel.links.length > 0) {
-        linkInfo = linkSrv.getPanelLinkAnchorInfo(panel.links[0], data.scopedVars);
+        linkInfo = linkSrv.getDataLinkUIModel(panel.links[0], data.scopedVars);
       } else {
         linkInfo = null;
       }
@@ -662,16 +651,16 @@ class SingleStatCtrl extends MetricsPanelCtrl {
       // drilldown link tooltip
       const drilldownTooltip = $('<div id="tooltip" class="">hello</div>"');
 
-      elem.mouseleave(function() {
+      elem.mouseleave(() => {
         if (panel.links.length === 0) {
           return;
         }
-        $timeout(function() {
+        $timeout(() => {
           drilldownTooltip.detach();
         });
       });
 
-      elem.click(function(evt) {
+      elem.click(evt => {
         if (!linkInfo) {
           return;
         }
@@ -688,7 +677,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
         if (linkInfo.href.indexOf('http') === 0) {
           window.location.href = linkInfo.href;
         } else {
-          $timeout(function() {
+          $timeout(() => {
             $location.url(linkInfo.href);
           });
         }
@@ -696,7 +685,7 @@ class SingleStatCtrl extends MetricsPanelCtrl {
         drilldownTooltip.detach();
       });
 
-      elem.mousemove(function(e) {
+      elem.mousemove(e => {
         if (!linkInfo) {
           return;
         }
@@ -708,14 +697,14 @@ class SingleStatCtrl extends MetricsPanelCtrl {
 
     hookupDrilldownLinkTooltip();
 
-    this.events.on('render', function() {
+    this.events.on('render', () => {
       render();
       ctrl.renderingCompleted();
     });
   }
 }
 
-function getColorForValue(data, value) {
+function getColorForValue(data: any, value: number) {
   if (!_.isFinite(value)) {
     return null;
   }

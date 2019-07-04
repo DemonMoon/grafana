@@ -13,10 +13,18 @@ func init() {
 	bus.AddHandler("sql", GetDataSourceStats)
 	bus.AddHandler("sql", GetDataSourceAccessStats)
 	bus.AddHandler("sql", GetAdminStats)
+	bus.AddHandlerCtx("sql", GetAlertNotifiersUsageStats)
 	bus.AddHandlerCtx("sql", GetSystemUserCountStats)
 }
 
 var activeUserTimeLimit = time.Hour * 24 * 30
+
+func GetAlertNotifiersUsageStats(ctx context.Context, query *m.GetAlertNotifierUsageStatsQuery) error {
+	var rawSql = `SELECT COUNT(*) as count, type FROM alert_notification GROUP BY type`
+	query.Result = make([]*m.NotifierUsageStats, 0)
+	err := x.SQL(rawSql).Find(&query.Result)
+	return err
+}
 
 func GetDataSourceStats(query *m.GetDataSourceStatsQuery) error {
 	var rawSql = `SELECT COUNT(*) as count, type FROM data_source GROUP BY type`
@@ -66,7 +74,12 @@ func GetSystemStats(query *m.GetSystemStatsQuery) error {
 
 	sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("dashboard_provisioning") + `) AS provisioned_dashboards,`)
 	sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("dashboard_snapshot") + `) AS snapshots,`)
-	sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("team") + `) AS teams`)
+	sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("team") + `) AS teams,`)
+	sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("user_auth_token") + `) AS auth_tokens,`)
+
+	sb.Write(roleCounterSQL("Viewer", "viewers")+`,`, activeUserDeadlineDate)
+	sb.Write(roleCounterSQL("Editor", "editors")+`,`, activeUserDeadlineDate)
+	sb.Write(roleCounterSQL("Admin", "admins")+``, activeUserDeadlineDate)
 
 	var stats m.SystemStats
 	_, err := x.SQL(sb.GetSqlString(), sb.params...).Get(&stats)
@@ -79,53 +92,83 @@ func GetSystemStats(query *m.GetSystemStatsQuery) error {
 	return err
 }
 
+func roleCounterSQL(role, alias string) string {
+	return `
+		(
+			SELECT COUNT(*)
+			FROM ` + dialect.Quote("user") + ` as u
+			WHERE
+			(SELECT COUNT(*)
+				FROM org_user
+				WHERE org_user.user_id=u.id
+				AND org_user.role='` + role + `')>0
+		) as ` + alias + `,
+		(
+			SELECT COUNT(*)
+			FROM ` + dialect.Quote("user") + ` as u
+			WHERE
+			(SELECT COUNT(*)
+				FROM org_user
+				WHERE org_user.user_id=u.id
+				AND org_user.role='` + role + `')>0
+			AND u.last_seen_at>?
+		) as active_` + alias
+}
+
 func GetAdminStats(query *m.GetAdminStatsQuery) error {
+	activeEndDate := time.Now().Add(-activeUserTimeLimit)
+
 	var rawSql = `SELECT
-	  (
-		SELECT COUNT(*)
-		FROM ` + dialect.Quote("user") + `
-	  ) AS users,
-	  (
+		  (
 		SELECT COUNT(*)
 		FROM ` + dialect.Quote("org") + `
-	  ) AS orgs,
-	  (
+		  ) AS orgs,
+		  (
 		SELECT COUNT(*)
 		FROM ` + dialect.Quote("dashboard") + `
-	  ) AS dashboards,
-	  (
+		) AS dashboards,
+		(
 		SELECT COUNT(*)
 		FROM ` + dialect.Quote("dashboard_snapshot") + `
-	  ) AS snapshots,
-	  (
+		  ) AS snapshots,
+		  (
 		SELECT COUNT( DISTINCT ( ` + dialect.Quote("term") + ` ))
 		FROM ` + dialect.Quote("dashboard_tag") + `
-	  ) AS tags,
-	  (
+		  ) AS tags,
+		  (
 		SELECT COUNT(*)
 		FROM ` + dialect.Quote("data_source") + `
-	  ) AS datasources,
-	  (
+		  ) AS datasources,
+		  (
 		SELECT COUNT(*)
 		FROM ` + dialect.Quote("playlist") + `
-	  ) AS playlists,
-	  (
+		  ) AS playlists,
+		  (
 		SELECT COUNT(*) FROM ` + dialect.Quote("star") + `
-	  ) AS stars,
-	  (
+		  ) AS stars,
+		  (
 		SELECT COUNT(*)
 		FROM ` + dialect.Quote("alert") + `
-	  ) AS alerts,
-			(
-				SELECT COUNT(*)
-		from ` + dialect.Quote("user") + ` where last_seen_at > ?
-			) as active_users
+		) AS alerts,
+		(
+		SELECT COUNT(*)
+		FROM ` + dialect.Quote("user") + `
+		) AS users,
+		(
+		SELECT COUNT(*)
+		FROM ` + dialect.Quote("user") + ` where last_seen_at > ?
+		) as active_users,
+		` + roleCounterSQL("Admin", "admins") + `,
+		` + roleCounterSQL("Editor", "editors") + `,
+		` + roleCounterSQL("Viewer", "viewers") + `,
+		(
+		SELECT COUNT(*)
+		FROM ` + dialect.Quote("user_auth_token") + ` where rotated_at > ?
+		) as active_sessions
 	  `
 
-	activeUserDeadlineDate := time.Now().Add(-activeUserTimeLimit)
-
 	var stats m.AdminStats
-	_, err := x.SQL(rawSql, activeUserDeadlineDate).Get(&stats)
+	_, err := x.SQL(rawSql, activeEndDate, activeEndDate, activeEndDate, activeEndDate, activeEndDate.Unix()).Get(&stats)
 	if err != nil {
 		return err
 	}

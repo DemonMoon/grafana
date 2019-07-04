@@ -4,9 +4,10 @@ import (
 	"github.com/fatih/color"
 	"github.com/grafana/grafana/pkg/cmd/grafana-cli/logger"
 	s "github.com/grafana/grafana/pkg/cmd/grafana-cli/services"
+	"github.com/grafana/grafana/pkg/cmd/grafana-cli/utils"
 )
 
-func upgradeCommand(c CommandLine) error {
+func upgradeCommand(c utils.CommandLine) error {
 	pluginsDir := c.PluginDirectory()
 	pluginName := c.Args().First()
 
@@ -16,7 +17,7 @@ func upgradeCommand(c CommandLine) error {
 		return err
 	}
 
-	v, err2 := s.GetPlugin(localPlugin.Id, c.RepoDirectory())
+	v, err2 := s.GetPlugin(pluginName, c.RepoDirectory())
 
 	if err2 != nil {
 		return err2
@@ -24,9 +25,9 @@ func upgradeCommand(c CommandLine) error {
 
 	if ShouldUpgrade(localPlugin.Info.Version, v) {
 		s.RemoveInstalledPlugin(pluginsDir, pluginName)
-		return InstallPlugin(localPlugin.Id, "", c)
+		return InstallPlugin(pluginName, "", c)
 	}
 
-	logger.Infof("%s %s is up to date \n", color.GreenString("✔"), localPlugin.Id)
+	logger.Infof("%s %s is up to date \n", color.GreenString("✔"), pluginName)
 	return nil
 }

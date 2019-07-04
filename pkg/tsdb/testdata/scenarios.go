@@ -2,13 +2,15 @@ package testdata
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
 	"math/rand"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/grafana/grafana/pkg/components/null"
-	"github.com/grafana/grafana/pkg/log"
+	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/tsdb"
 )
 
@@ -95,27 +97,29 @@ func init() {
 		Id:   "random_walk",
 		Name: "Random Walk",
 
-		Handler: func(query *tsdb.Query, tsdbQuery *tsdb.TsdbQuery) *tsdb.QueryResult {
-			timeWalkerMs := tsdbQuery.TimeRange.GetFromAsMsEpoch()
-			to := tsdbQuery.TimeRange.GetToAsMsEpoch()
+		Handler: func(query *tsdb.Query, context *tsdb.TsdbQuery) *tsdb.QueryResult {
+			return getRandomWalk(query, context)
+		},
+	})
 
-			series := newSeriesForQuery(query)
+	registerScenario(&Scenario{
+		Id:   "random_walk_table",
+		Name: "Random Walk Table",
 
-			points := make(tsdb.TimeSeriesPoints, 0)
-			walker := rand.Float64() * 100
+		Handler: func(query *tsdb.Query, context *tsdb.TsdbQuery) *tsdb.QueryResult {
+			return getRandomWalkTable(query, context)
+		},
+	})
 
-			for i := int64(0); i < 10000 && timeWalkerMs < to; i++ {
-				points = append(points, tsdb.NewTimePoint(null.FloatFrom(walker), float64(timeWalkerMs)))
-
-				walker += rand.Float64() - 0.5
-				timeWalkerMs += query.IntervalMs
-			}
-
-			series.Points = points
-
-			queryRes := tsdb.NewQueryResult()
-			queryRes.Series = append(queryRes.Series, series)
-			return queryRes
+	registerScenario(&Scenario{
+		Id:          "slow_query",
+		Name:        "Slow Query",
+		StringInput: "5s",
+		Handler: func(query *tsdb.Query, context *tsdb.TsdbQuery) *tsdb.QueryResult {
+			stringInput := query.Model.Get("stringInput").MustString()
+			parsedInterval, _ := time.ParseDuration(stringInput)
+			time.Sleep(parsedInterval)
+			return getRandomWalk(query, context)
 		},
 	})
 
@@ -221,6 +225,202 @@ func init() {
 			return queryRes
 		},
 	})
+
+	registerScenario(&Scenario{
+		Id:   "streaming_client",
+		Name: "Streaming Client",
+		Handler: func(query *tsdb.Query, context *tsdb.TsdbQuery) *tsdb.QueryResult {
+			// Real work is in javascript client
+			return tsdb.NewQueryResult()
+		},
+	})
+
+	registerScenario(&Scenario{
+		Id:   "table_static",
+		Name: "Table Static",
+
+		Handler: func(query *tsdb.Query, context *tsdb.TsdbQuery) *tsdb.QueryResult {
+			timeWalkerMs := context.TimeRange.GetFromAsMsEpoch()
+			to := context.TimeRange.GetToAsMsEpoch()
+
+			table := tsdb.Table{
+				Columns: []tsdb.TableColumn{
+					{Text: "Time"},
+					{Text: "Message"},
+					{Text: "Description"},
+					{Text: "Value"},
+				},
+				Rows: []tsdb.RowValues{},
+			}
+			for i := int64(0); i < 10 && timeWalkerMs < to; i++ {
+				table.Rows = append(table.Rows, tsdb.RowValues{float64(timeWalkerMs), "This is a message", "Description", 23.1})
+				timeWalkerMs += query.IntervalMs
+			}
+
+			queryRes := tsdb.NewQueryResult()
+			queryRes.Tables = append(queryRes.Tables, &table)
+			return queryRes
+		},
+	})
+
+	registerScenario(&Scenario{
+		Id:   "logs",
+		Name: "Logs",
+
+		Handler: func(query *tsdb.Query, context *tsdb.TsdbQuery) *tsdb.QueryResult {
+			from := context.TimeRange.GetFromAsMsEpoch()
+			to := context.TimeRange.GetToAsMsEpoch()
+			lines := query.Model.Get("lines").MustInt64(10)
+			includeLevelColumn := query.Model.Get("levelColumn").MustBool(false)
+
+			logLevelGenerator := newRandomStringProvider([]string{
+				"emerg",
+				"alert",
+				"crit",
+				"critical",
+				"warn",
+				"warning",
+				"err",
+				"eror",
+				"error",
+				"info",
+				"notice",
+				"dbug",
+				"debug",
+				"trace",
+				"",
+			})
+			containerIDGenerator := newRandomStringProvider([]string{
+				"f36a9eaa6d34310686f2b851655212023a216de955cbcc764210cefa71179b1a",
+				"5a354a630364f3742c602f315132e16def594fe68b1e4a195b2fce628e24c97a",
+			})
+			hostnameGenerator := newRandomStringProvider([]string{
+				"srv-001",
+				"srv-002",
+			})
+
+			table := tsdb.Table{
+				Columns: []tsdb.TableColumn{
+					{Text: "time"},
+					{Text: "message"},
+					{Text: "container_id"},
+					{Text: "hostname"},
+				},
+				Rows: []tsdb.RowValues{},
+			}
+
+			if includeLevelColumn {
+				table.Columns = append(table.Columns, tsdb.TableColumn{Text: "level"})
+			}
+
+			for i := int64(0); i < lines && to > from; i++ {
+				row := tsdb.RowValues{float64(to)}
+
+				logLevel := logLevelGenerator.Next()
+				timeFormatted := time.Unix(to/1000, 0).Format(time.RFC3339)
+				lvlString := ""
+				if !includeLevelColumn {
+					lvlString = fmt.Sprintf("lvl=%s ", logLevel)
+				}
+
+				row = append(row, fmt.Sprintf("t=%s %smsg=\"Request Completed\" logger=context userId=1 orgId=1 uname=admin method=GET path=/api/datasources/proxy/152/api/prom/label status=502 remote_addr=[::1] time_ms=1 size=0 referer=\"http://localhost:3000/explore?left=%%5B%%22now-6h%%22,%%22now%%22,%%22Prometheus%%202.x%%22,%%7B%%7D,%%7B%%22ui%%22:%%5Btrue,true,true,%%22none%%22%%5D%%7D%%5D\"", timeFormatted, lvlString))
+				row = append(row, containerIDGenerator.Next())
+				row = append(row, hostnameGenerator.Next())
+
+				if includeLevelColumn {
+					row = append(row, logLevel)
+				}
+
+				table.Rows = append(table.Rows, row)
+				to -= query.IntervalMs
+			}
+
+			queryRes := tsdb.NewQueryResult()
+			queryRes.Tables = append(queryRes.Tables, &table)
+			return queryRes
+		},
+	})
+}
+
+func getRandomWalk(query *tsdb.Query, tsdbQuery *tsdb.TsdbQuery) *tsdb.QueryResult {
+	timeWalkerMs := tsdbQuery.TimeRange.GetFromAsMsEpoch()
+	to := tsdbQuery.TimeRange.GetToAsMsEpoch()
+
+	series := newSeriesForQuery(query)
+
+	points := make(tsdb.TimeSeriesPoints, 0)
+	walker := query.Model.Get("startValue").MustFloat64(rand.Float64() * 100)
+
+	for i := int64(0); i < 10000 && timeWalkerMs < to; i++ {
+		points = append(points, tsdb.NewTimePoint(null.FloatFrom(walker), float64(timeWalkerMs)))
+
+		walker += rand.Float64() - 0.5
+		timeWalkerMs += query.IntervalMs
+	}
+
+	series.Points = points
+
+	queryRes := tsdb.NewQueryResult()
+	queryRes.Series = append(queryRes.Series, series)
+	return queryRes
+}
+
+func getRandomWalkTable(query *tsdb.Query, tsdbQuery *tsdb.TsdbQuery) *tsdb.QueryResult {
+	timeWalkerMs := tsdbQuery.TimeRange.GetFromAsMsEpoch()
+	to := tsdbQuery.TimeRange.GetToAsMsEpoch()
+
+	table := tsdb.Table{
+		Columns: []tsdb.TableColumn{
+			{Text: "Time"},
+			{Text: "Value"},
+			{Text: "Min"},
+			{Text: "Max"},
+			{Text: "Info"},
+		},
+		Rows: []tsdb.RowValues{},
+	}
+
+	withNil := query.Model.Get("withNil").MustBool(false)
+	walker := query.Model.Get("startValue").MustFloat64(rand.Float64() * 100)
+	spread := 2.5
+	var info strings.Builder
+
+	for i := int64(0); i < query.MaxDataPoints && timeWalkerMs < to; i++ {
+		delta := rand.Float64() - 0.5
+		walker += delta
+
+		info.Reset()
+		if delta > 0 {
+			info.WriteString("up")
+		} else {
+			info.WriteString("down")
+		}
+		if math.Abs(delta) > .4 {
+			info.WriteString(" fast")
+		}
+		row := tsdb.RowValues{
+			float64(timeWalkerMs),
+			walker,
+			walker - ((rand.Float64() * spread) + 0.01), // Min
+			walker + ((rand.Float64() * spread) + 0.01), // Max
+			info.String(),
+		}
+
+		// Add some random null values
+		if withNil && rand.Float64() > 0.8 {
+			for i := 1; i < 4; i++ {
+				if rand.Float64() > .2 {
+					row[i] = nil
+				}
+			}
+		}
+
+		table.Rows = append(table.Rows, row)
+		timeWalkerMs += query.IntervalMs
+	}
+	queryRes := tsdb.NewQueryResult()
+	queryRes.Tables = append(queryRes.Tables, &table)
+	return queryRes
 }
 
 func registerScenario(scenario *Scenario) {

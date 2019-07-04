@@ -9,6 +9,7 @@ import (
 	"github.com/grafana/grafana/pkg/bus"
 	m "github.com/grafana/grafana/pkg/models"
 	"github.com/grafana/grafana/pkg/services/dashboards"
+	"github.com/grafana/grafana/pkg/setting"
 
 	. "github.com/smartystreets/goconvey/convey"
 )
@@ -133,16 +134,6 @@ func TestFoldersApiEndpoint(t *testing.T) {
 	})
 }
 
-func callGetFolderByUID(sc *scenarioContext) {
-	sc.handlerFunc = GetFolderByUID
-	sc.fakeReqWithParams("GET", sc.url, map[string]string{}).exec()
-}
-
-func callDeleteFolder(sc *scenarioContext) {
-	sc.handlerFunc = DeleteFolder
-	sc.fakeReqWithParams("DELETE", sc.url, map[string]string{}).exec()
-}
-
 func callCreateFolder(sc *scenarioContext) {
 	sc.fakeReqWithParams("POST", sc.url, map[string]string{}).exec()
 }
@@ -151,12 +142,17 @@ func createFolderScenario(desc string, url string, routePattern string, mock *fa
 	Convey(desc+" "+url, func() {
 		defer bus.ClearBusHandlers()
 
+		hs := HTTPServer{
+			Bus: bus.GetBus(),
+			Cfg: setting.NewCfg(),
+		}
+
 		sc := setupScenarioContext(url)
 		sc.defaultHandler = Wrap(func(c *m.ReqContext) Response {
 			sc.context = c
 			sc.context.SignedInUser = &m.SignedInUser{OrgId: TestOrgID, UserId: TestUserID}
 
-			return CreateFolder(c, cmd)
+			return hs.CreateFolder(c, cmd)
 		})
 
 		origNewFolderService := dashboards.NewFolderService
@@ -217,7 +213,7 @@ type fakeFolderService struct {
 	DeletedFolderUids    []string
 }
 
-func (s *fakeFolderService) GetFolders(limit int) ([]*m.Folder, error) {
+func (s *fakeFolderService) GetFolders(limit int64) ([]*m.Folder, error) {
 	return s.GetFoldersResult, s.GetFoldersError
 }
 

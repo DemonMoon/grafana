@@ -1,13 +1,13 @@
 # Plugin Development 
 
-This document is not meant as complete guide for developing plugins but more as a changelog for changes in
-Grafana that can impact plugin development. When ever you as plugin author encounter an issue with your plugin after
+This document is not meant as a complete guide for developing plugins but more as a changelog for changes in
+Grafana that can impact plugin development. Whenever you as a plugin author encounter an issue with your plugin after
 upgrading Grafana please check here before creating an issue. 
 
 ## Links
 
-- [Datasource plugin written in typescript](https://github.com/grafana/typescript-template-datasource)
-- [Simple json dataource plugin](https://github.com/grafana/simple-json-datasource)
+- [Datasource plugin written in TypeScript](https://github.com/grafana/typescript-template-datasource)
+- [Simple JSON datasource plugin](https://github.com/grafana/simple-json-datasource)
 - [Plugin development guide](http://docs.grafana.org/plugins/developing/development/)
 - [Webpack Grafana plugin template project](https://github.com/CorpGlory/grafana-plugin-template-webpack)
 
@@ -27,3 +27,8 @@ If you think we missed exposing a crucial lib or Grafana component let us know b
 The angular directive `<spectrum-picker>` is now deprecated (will still work for a version more) but we recommend plugin authors
 to upgrade to new `<color-picker color="ctrl.color" onChange="ctrl.onSparklineColorChange"></color-picker>`
 
+## Changes in v6.0
+
+### DashboardSrv.ts
+
+If you utilize [DashboardSrv](https://github.com/grafana/grafana/commit/8574dca081002f36e482b572517d8f05fd44453f#diff-1ab99561f9f6a10e1fafcddc39bc1d65) in your plugin code, `dash` was renamed to `dashboard` 

@@ -28,6 +28,11 @@ func getUserUserProfile(userID int64) Response {
 		return Error(500, "Failed to get user", err)
 	}
 
+	getAuthQuery := m.GetAuthInfoQuery{UserId: userID}
+	if err := bus.Dispatch(&getAuthQuery); err == nil {
+		query.Result.AuthModule = []string{getAuthQuery.Result.AuthModule}
+	}
+
 	return JSON(200, query.Result)
 }
 
@@ -113,7 +118,16 @@ func GetSignedInUserOrgList(c *m.ReqContext) Response {
 
 // GET /api/user/teams
 func GetSignedInUserTeamList(c *m.ReqContext) Response {
-	query := m.GetTeamsByUserQuery{OrgId: c.OrgId, UserId: c.UserId}
+	return getUserTeamList(c.OrgId, c.UserId)
+}
+
+// GET /api/users/:id/teams
+func GetUserTeams(c *m.ReqContext) Response {
+	return getUserTeamList(c.OrgId, c.ParamsInt64(":id"))
+}
+
+func getUserTeamList(orgID int64, userID int64) Response {
+	query := m.GetTeamsByUserQuery{OrgId: orgID, UserId: userID}
 
 	if err := bus.Dispatch(&query); err != nil {
 		return Error(500, "Failed to get user teams", err)
@@ -122,11 +136,10 @@ func GetSignedInUserTeamList(c *m.ReqContext) Response {
 	for _, team := range query.Result {
 		team.AvatarUrl = dtos.GetGravatarUrlWithDefault(team.Email, team.Name)
 	}
-
 	return JSON(200, query.Result)
 }
 
-// GET /api/user/:id/orgs
+// GET /api/users/:id/orgs
 func GetUserOrgList(c *m.ReqContext) Response {
 	return getUserOrgList(c.ParamsInt64(":id"))
 }
@@ -177,24 +190,24 @@ func UserSetUsingOrg(c *m.ReqContext) Response {
 }
 
 // GET /profile/switch-org/:id
-func ChangeActiveOrgAndRedirectToHome(c *m.ReqContext) {
+func (hs *HTTPServer) ChangeActiveOrgAndRedirectToHome(c *m.ReqContext) {
 	orgID := c.ParamsInt64(":id")
 
 	if !validateUsingOrg(c.UserId, orgID) {
-		NotFoundHandler(c)
+		hs.NotFoundHandler(c)
 	}
 
 	cmd := m.SetUsingOrgCommand{UserId: c.UserId, OrgId: orgID}
 
 	if err := bus.Dispatch(&cmd); err != nil {
-		NotFoundHandler(c)
+		hs.NotFoundHandler(c)
 	}
 
 	c.Redirect(setting.AppSubUrl + "/")
 }
 
 func ChangeUserPassword(c *m.ReqContext, cmd m.ChangeUserPasswordCommand) Response {
-	if setting.LdapEnabled || setting.AuthProxyEnabled {
+	if setting.LDAPEnabled || setting.AuthProxyEnabled {
 		return Error(400, "Not allowed to change password when LDAP or Auth Proxy is enabled", nil)
 	}
 

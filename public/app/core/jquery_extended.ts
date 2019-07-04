@@ -4,12 +4,12 @@ import _ from 'lodash';
 
 const $win = $(window);
 
-$.fn.place_tt = (function() {
+$.fn.place_tt = (() => {
   const defaults = {
     offset: 5,
   };
 
-  return function(this: any, x, y, opts) {
+  return function(this: any, x: number, y: number, opts: any) {
     opts = $.extend(true, {}, defaults, opts);
 
     return this.each(() => {
@@ -28,7 +28,7 @@ $.fn.place_tt = (function() {
           .invoke([
             '$compile',
             '$rootScope',
-            function($compile, $rootScope) {
+            ($compile, $rootScope) => {
               const tmpScope = $rootScope.$new(true);
               _.extend(tmpScope, opts.scopeData);
 

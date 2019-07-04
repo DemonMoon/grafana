@@ -36,6 +36,10 @@ func (r RoleType) Includes(other RoleType) bool {
 		return other != ROLE_ADMIN
 	}
 
+	if r == ROLE_VIEWER {
+		return other == ROLE_VIEWER
+	}
+
 	return false
 }
 
@@ -72,8 +76,10 @@ type OrgUser struct {
 // COMMANDS
 
 type RemoveOrgUserCommand struct {
-	UserId int64
-	OrgId  int64
+	UserId                   int64
+	OrgId                    int64
+	ShouldDeleteOrphanedUser bool
+	UserWasDeleted           bool
 }
 
 type AddOrgUserCommand struct {

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"sort"
 
 	"github.com/grafana/grafana/pkg/api/dtos"
 	"github.com/grafana/grafana/pkg/bus"
@@ -13,24 +14,27 @@ import (
 )
 
 // POST /api/tsdb/query
-func QueryMetrics(c *m.ReqContext, reqDto dtos.MetricRequest) Response {
+func (hs *HTTPServer) QueryMetrics(c *m.ReqContext, reqDto dtos.MetricRequest) Response {
 	timeRange := tsdb.NewTimeRange(reqDto.From, reqDto.To)
 
 	if len(reqDto.Queries) == 0 {
 		return Error(400, "No queries found in query", nil)
 	}
 
-	dsID, err := reqDto.Queries[0].Get("datasourceId").Int64()
+	datasourceId, err := reqDto.Queries[0].Get("datasourceId").Int64()
 	if err != nil {
 		return Error(400, "Query missing datasourceId", nil)
 	}
 
-	dsQuery := m.GetDataSourceByIdQuery{Id: dsID, OrgId: c.OrgId}
-	if err := bus.Dispatch(&dsQuery); err != nil {
-		return Error(500, "failed to fetch data source", err)
+	ds, err := hs.DatasourceCache.GetDatasource(datasourceId, c.SignedInUser, c.SkipCache)
+	if err != nil {
+		if err == m.ErrDataSourceAccessDenied {
+			return Error(403, "Access denied to datasource", err)
+		}
+		return Error(500, "Unable to load datasource meta data", err)
 	}
 
-	request := &tsdb.TsdbQuery{TimeRange: timeRange}
+	request := &tsdb.TsdbQuery{TimeRange: timeRange, Debug: reqDto.Debug}
 
 	for _, query := range reqDto.Queries {
 		request.Queries = append(request.Queries, &tsdb.Query{
@@ -38,11 +42,11 @@ func QueryMetrics(c *m.ReqContext, reqDto dtos.MetricRequest) Response {
 			MaxDataPoints: query.Get("maxDataPoints").MustInt64(100),
 			IntervalMs:    query.Get("intervalMs").MustInt64(1000),
 			Model:         query,
-			DataSource:    dsQuery.Result,
+			DataSource:    ds,
 		})
 	}
 
-	resp, err := tsdb.HandleRequest(context.Background(), dsQuery.Result, request)
+	resp, err := tsdb.HandleRequest(c.Req.Context(), ds, request)
 	if err != nil {
 		return Error(500, "Metric request error", err)
 	}
@@ -63,7 +67,14 @@ func QueryMetrics(c *m.ReqContext, reqDto dtos.MetricRequest) Response {
 func GetTestDataScenarios(c *m.ReqContext) Response {
 	result := make([]interface{}, 0)
 
-	for _, scenario := range testdata.ScenarioRegistry {
+	scenarioIds := make([]string, 0)
+	for id := range testdata.ScenarioRegistry {
+		scenarioIds = append(scenarioIds, id)
+	}
+	sort.Strings(scenarioIds)
+
+	for _, scenarioId := range scenarioIds {
+		scenario := testdata.ScenarioRegistry[scenarioId]
 		result = append(result, map[string]interface{}{
 			"id":          scenario.Id,
 			"name":        scenario.Name,
@@ -78,6 +89,7 @@ func GetTestDataScenarios(c *m.ReqContext) Response {
 // Generates a index out of range error
 func GenerateError(c *m.ReqContext) Response {
 	var array []string
+	// nolint: govet
 	return JSON(200, array[20])
 }
 

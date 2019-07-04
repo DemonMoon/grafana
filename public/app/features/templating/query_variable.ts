@@ -1,6 +1,6 @@
 import _ from 'lodash';
-import kbn from 'app/core/utils/kbn';
 import { Variable, containsVariable, assignModelProperties, variableTypes } from './variable';
+import { stringToJsRegex } from '@grafana/data';
 
 function getNoneOption() {
   return { text: 'None', value: '', isNone: true };
@@ -23,6 +23,7 @@ export class QueryVariable implements Variable {
   tagValuesQuery: string;
   tags: any[];
   skipUrlSync: boolean;
+  definition: string;
 
   defaults = {
     type: 'query',
@@ -44,6 +45,7 @@ export class QueryVariable implements Variable {
     tagsQuery: '',
     tagValuesQuery: '',
     skipUrlSync: false,
+    definition: '',
   };
 
   /** @ngInject */
@@ -106,8 +108,8 @@ export class QueryVariable implements Variable {
   getValuesForTag(tagKey) {
     return this.datasourceSrv.get(this.datasource).then(datasource => {
       const query = this.tagValuesQuery.replace('$tag', tagKey);
-      return this.metricFindQuery(datasource, query).then(function(results) {
-        return _.map(results, function(value) {
+      return this.metricFindQuery(datasource, query).then(results => {
+        return _.map(results, value => {
           return value.text;
         });
       });
@@ -146,7 +148,7 @@ export class QueryVariable implements Variable {
     options = [];
 
     if (this.regex) {
-      regex = kbn.stringToJsRegex(this.templateSrv.replace(this.regex, {}, 'regex'));
+      regex = stringToJsRegex(this.templateSrv.replace(this.regex, {}, 'regex'));
     }
     for (i = 0; i < metricNames.length; i++) {
       const item = metricNames[i];

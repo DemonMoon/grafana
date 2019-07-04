@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/grafana/grafana/pkg/log"
+	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/setting"
 	"gopkg.in/macaron.v1"
 
@@ -95,15 +95,6 @@ func (this *Avatar) Update() (err error) {
 type CacheServer struct {
 	notFound *Avatar
 	cache    *gocache.Cache
-}
-
-func (this *CacheServer) mustInt(r *http.Request, defaultValue int, keys ...string) (v int) {
-	for _, k := range keys {
-		if _, err := fmt.Sscanf(r.FormValue(k), "%d", &v); err == nil {
-			defaultValue = v
-		}
-	}
-	return defaultValue
 }
 
 func (this *CacheServer) Handler(ctx *macaron.Context) {

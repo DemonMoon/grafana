@@ -1,11 +1,17 @@
-import angular from 'angular';
+import angular, { IQService } from 'angular';
 import _ from 'lodash';
-import moment from 'moment';
-import { ElasticQueryBuilder } from './query_builder';
-import { IndexPattern } from './index_pattern';
+import { DataSourceApi, DataSourceInstanceSettings, DataQueryRequest, DataQueryResponse } from '@grafana/ui';
 import { ElasticResponse } from './elastic_response';
+import { IndexPattern } from './index_pattern';
+import { ElasticQueryBuilder } from './query_builder';
+import { toUtc } from '@grafana/ui/src/utils/moment_wrapper';
+import * as queryDef from './query_def';
+import { BackendSrv } from 'app/core/services/backend_srv';
+import { TemplateSrv } from 'app/features/templating/template_srv';
+import { TimeSrv } from 'app/features/dashboard/services/TimeSrv';
+import { ElasticsearchOptions, ElasticsearchQuery } from './types';
 
-export class ElasticDatasource {
+export class ElasticDatasource extends DataSourceApi<ElasticsearchQuery, ElasticsearchOptions> {
   basicAuth: string;
   withCredentials: boolean;
   url: string;
@@ -17,23 +23,44 @@ export class ElasticDatasource {
   maxConcurrentShardRequests: number;
   queryBuilder: ElasticQueryBuilder;
   indexPattern: IndexPattern;
+  logMessageField?: string;
+  logLevelField?: string;
 
   /** @ngInject */
-  constructor(instanceSettings, private $q, private backendSrv, private templateSrv, private timeSrv) {
+  constructor(
+    instanceSettings: DataSourceInstanceSettings<ElasticsearchOptions>,
+    private $q: IQService,
+    private backendSrv: BackendSrv,
+    private templateSrv: TemplateSrv,
+    private timeSrv: TimeSrv
+  ) {
+    super(instanceSettings);
     this.basicAuth = instanceSettings.basicAuth;
     this.withCredentials = instanceSettings.withCredentials;
     this.url = instanceSettings.url;
     this.name = instanceSettings.name;
-    this.index = instanceSettings.index;
-    this.timeField = instanceSettings.jsonData.timeField;
-    this.esVersion = instanceSettings.jsonData.esVersion;
-    this.indexPattern = new IndexPattern(instanceSettings.index, instanceSettings.jsonData.interval);
-    this.interval = instanceSettings.jsonData.timeInterval;
-    this.maxConcurrentShardRequests = instanceSettings.jsonData.maxConcurrentShardRequests;
+    this.index = instanceSettings.database;
+    const settingsData = instanceSettings.jsonData || ({} as ElasticsearchOptions);
+
+    this.timeField = settingsData.timeField;
+    this.esVersion = settingsData.esVersion;
+    this.indexPattern = new IndexPattern(this.index, settingsData.interval);
+    this.interval = settingsData.timeInterval;
+    this.maxConcurrentShardRequests = settingsData.maxConcurrentShardRequests;
     this.queryBuilder = new ElasticQueryBuilder({
       timeField: this.timeField,
       esVersion: this.esVersion,
     });
+    this.logMessageField = settingsData.logMessageField || '';
+    this.logLevelField = settingsData.logLevelField || '';
+
+    if (this.logMessageField === '') {
+      this.logMessageField = null;
+    }
+
+    if (this.logLevelField === '') {
+      this.logLevelField = null;
+    }
   }
 
   private request(method, url, data?) {
@@ -59,12 +86,12 @@ export class ElasticDatasource {
     const range = this.timeSrv.timeRange();
     const indexList = this.indexPattern.getIndexList(range.from.valueOf(), range.to.valueOf());
     if (_.isArray(indexList) && indexList.length) {
-      return this.request('GET', indexList[0] + url).then(function(results) {
+      return this.request('GET', indexList[0] + url).then(results => {
         results.data.$$config = results.config;
         return results.data;
       });
     } else {
-      return this.request('GET', this.indexPattern.getIndexForToday() + url).then(function(results) {
+      return this.request('GET', this.indexPattern.getIndexForToday() + url).then(results => {
         results.data.$$config = results.config;
         return results.data;
       });
@@ -73,7 +100,7 @@ export class ElasticDatasource {
 
   private post(url, data) {
     return this.request('POST', url, data)
-      .then(function(results) {
+      .then(results => {
         results.data.$$config = results.config;
         return results.data;
       })
@@ -145,7 +172,7 @@ export class ElasticDatasource {
       const list = [];
       const hits = res.responses[0].hits.hits;
 
-      const getFieldFromSource = function(source, fieldName) {
+      const getFieldFromSource = (source, fieldName) => {
         if (!fieldName) {
           return;
         }
@@ -176,7 +203,7 @@ export class ElasticDatasource {
 
         const event = {
           annotation: annotation,
-          time: moment.utc(time).valueOf(),
+          time: toUtc(time).valueOf(),
           text: getFieldFromSource(source, textField),
           tags: getFieldFromSource(source, tagsField),
         };
@@ -200,11 +227,10 @@ export class ElasticDatasource {
   }
 
   testDatasource() {
-    this.timeSrv.setTime({ from: 'now-1m', to: 'now' }, true);
     // validate that the index exist and has date field
     return this.getFields({ type: 'date' }).then(
       dateFields => {
-        const timeField = _.find(dateFields, { text: this.timeField });
+        const timeField: any = _.find(dateFields, { text: this.timeField });
         if (!timeField) {
           return {
             status: 'error',
@@ -213,7 +239,7 @@ export class ElasticDatasource {
         }
         return { status: 'success', message: 'Index OK. Time field name OK.' };
       },
-      function(err) {
+      err => {
         console.log(err);
         if (err.data && err.data.error) {
           let message = angular.toJson(err.data.error);
@@ -234,28 +260,44 @@ export class ElasticDatasource {
       ignore_unavailable: true,
       index: this.indexPattern.getIndexList(timeFrom, timeTo),
     };
-    if (this.esVersion >= 56) {
+    if (this.esVersion >= 56 && this.esVersion < 70) {
       queryHeader['max_concurrent_shard_requests'] = this.maxConcurrentShardRequests;
     }
     return angular.toJson(queryHeader);
   }
 
-  query(options) {
+  query(options: DataQueryRequest<ElasticsearchQuery>): Promise<DataQueryResponse> {
     let payload = '';
-    let target;
-    const sentTargets = [];
+    const targets = _.cloneDeep(options.targets);
+    const sentTargets: ElasticsearchQuery[] = [];
 
     // add global adhoc filters to timeFilter
     const adhocFilters = this.templateSrv.getAdhocFilters(this.name);
 
-    for (let i = 0; i < options.targets.length; i++) {
-      target = options.targets[i];
+    for (const target of targets) {
       if (target.hide) {
         continue;
       }
 
-      const queryString = this.templateSrv.replace(target.query || '*', options.scopedVars, 'lucene');
-      const queryObj = this.queryBuilder.build(target, adhocFilters, queryString);
+      let queryString = this.templateSrv.replace(target.query, options.scopedVars, 'lucene');
+      // Elasticsearch queryString should always be '*' if empty string
+      if (!queryString || queryString === '') {
+        queryString = '*';
+      }
+
+      let queryObj;
+      if (target.isLogsQuery) {
+        target.bucketAggs = [queryDef.defaultBucketAgg()];
+        target.metrics = [queryDef.defaultMetricAgg()];
+        queryObj = this.queryBuilder.getLogsQuery(target, queryString);
+      } else {
+        if (target.alias) {
+          target.alias = this.templateSrv.replace(target.alias, options.scopedVars, 'lucene');
+        }
+
+        queryObj = this.queryBuilder.build(target, adhocFilters, queryString);
+      }
+
       const esQuery = angular.toJson(queryObj);
 
       const searchType = queryObj.size === 0 && this.esVersion < 5 ? 'count' : 'query_then_fetch';
@@ -263,24 +305,33 @@ export class ElasticDatasource {
       payload += header + '\n';
 
       payload += esQuery + '\n';
+
       sentTargets.push(target);
     }
 
     if (sentTargets.length === 0) {
-      return this.$q.when([]);
+      return Promise.resolve({ data: [] });
     }
 
-    payload = payload.replace(/\$timeFrom/g, options.range.from.valueOf());
-    payload = payload.replace(/\$timeTo/g, options.range.to.valueOf());
+    payload = payload.replace(/\$timeFrom/g, options.range.from.valueOf().toString());
+    payload = payload.replace(/\$timeTo/g, options.range.to.valueOf().toString());
     payload = this.templateSrv.replace(payload, options.scopedVars);
 
-    return this.post('_msearch', payload).then(function(res) {
-      return new ElasticResponse(sentTargets, res).getTimeSeries();
+    const url = this.getMultiSearchUrl();
+
+    return this.post(url, payload).then(res => {
+      const er = new ElasticResponse(sentTargets, res);
+      if (sentTargets.some(target => target.isLogsQuery)) {
+        return er.getLogs(this.logMessageField, this.logLevelField);
+      }
+
+      return er.getTimeSeries();
     });
   }
 
   getFields(query) {
-    return this.get('/_mapping').then(function(result) {
+    const configuredEsVersion = this.esVersion;
+    return this.get('/_mapping').then(result => {
       const typeMap = {
         float: 'number',
         double: 'number',
@@ -344,15 +395,21 @@ export class ElasticDatasource {
         const index = result[indexName];
         if (index && index.mappings) {
           const mappings = index.mappings;
-          for (const typeName in mappings) {
-            const properties = mappings[typeName].properties;
+
+          if (configuredEsVersion < 70) {
+            for (const typeName in mappings) {
+              const properties = mappings[typeName].properties;
+              getFieldsRecursively(properties);
+            }
+          } else {
+            const properties = mappings.properties;
             getFieldsRecursively(properties);
           }
         }
       }
 
       // transform to array
-      return _.map(fields, function(value) {
+      return _.map(fields, value => {
         return value;
       });
     });
@@ -364,23 +421,33 @@ export class ElasticDatasource {
     const header = this.getQueryHeader(searchType, range.from, range.to);
     let esQuery = angular.toJson(this.queryBuilder.getTermsQuery(queryDef));
 
-    esQuery = esQuery.replace(/\$timeFrom/g, range.from.valueOf());
-    esQuery = esQuery.replace(/\$timeTo/g, range.to.valueOf());
+    esQuery = esQuery.replace(/\$timeFrom/g, range.from.valueOf().toString());
+    esQuery = esQuery.replace(/\$timeTo/g, range.to.valueOf().toString());
     esQuery = header + '\n' + esQuery + '\n';
 
-    return this.post('_msearch?search_type=' + searchType, esQuery).then(function(res) {
+    const url = this.getMultiSearchUrl();
+
+    return this.post(url, esQuery).then(res => {
       if (!res.responses[0].aggregations) {
         return [];
       }
 
       const buckets = res.responses[0].aggregations['1'].buckets;
-      return _.map(buckets, function(bucket) {
+      return _.map(buckets, bucket => {
         return {
           text: bucket.key_as_string || bucket.key,
           value: bucket.key,
         };
       });
     });
+  }
+
+  getMultiSearchUrl() {
+    if (this.esVersion >= 70 && this.maxConcurrentShardRequests) {
+      return `_msearch?max_concurrent_shard_requests=${this.maxConcurrentShardRequests}`;
+    }
+
+    return '_msearch';
   }
 
   metricFindQuery(query) {
@@ -469,4 +536,17 @@ export class ElasticDatasource {
 
     return false;
   }
+}
+
+export function getMaxConcurrenShardRequestOrDefault(options: ElasticsearchOptions): number {
+  if (options.maxConcurrentShardRequests === 5 && options.esVersion < 70) {
+    return 256;
+  }
+
+  if (options.maxConcurrentShardRequests === 256 && options.esVersion >= 70) {
+    return 5;
+  }
+
+  const defaultMaxConcurrentShardRequests = options.esVersion >= 70 ? 5 : 256;
+  return options.maxConcurrentShardRequests || defaultMaxConcurrentShardRequests;
 }

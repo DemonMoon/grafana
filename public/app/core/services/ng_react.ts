@@ -9,6 +9,7 @@
 // - reactComponent (generic directive for delegating off to React Components)
 // - reactDirective (factory for creating specific directives that correspond to reactComponent directives)
 
+import { kebabCase } from 'lodash';
 import React from 'react';
 import ReactDOM from 'react-dom';
 import angular from 'angular';
@@ -34,7 +35,7 @@ function getReactComponent(name, $injector) {
 
   if (!reactComponent) {
     try {
-      reactComponent = name.split('.').reduce(function(current, namePart) {
+      reactComponent = name.split('.').reduce((current, namePart) => {
         return current[namePart];
       }, window);
     } catch (e) {}
@@ -52,13 +53,14 @@ function applied(fn, scope) {
   if (fn.wrappedInApply) {
     return fn;
   }
+  //tslint:disable-next-line:only-arrow-functions
   const wrapped: any = function() {
     const args = arguments;
     const phase = scope.$root.$$phase;
     if (phase === '$apply' || phase === '$digest') {
       return fn.apply(null, args);
     } else {
-      return scope.$apply(function() {
+      return scope.$apply(() => {
         return fn.apply(null, args);
       });
     }
@@ -80,7 +82,7 @@ function applied(fn, scope) {
  * @returns {Object} props with the functions wrapped in scope.$apply
  */
 function applyFunctions(obj, scope, propsConfig?) {
-  return Object.keys(obj || {}).reduce(function(prev, key) {
+  return Object.keys(obj || {}).reduce((prev, key) => {
     const value = obj[key];
     const config = (propsConfig || {})[key] || {};
     /**
@@ -108,20 +110,23 @@ function watchProps(watchDepth, scope, watchExpressions, listener) {
 
   const watchGroupExpressions = [];
 
-  watchExpressions.forEach(function(expr) {
+  for (const expr of watchExpressions) {
     const actualExpr = getPropExpression(expr);
     const exprWatchDepth = getPropWatchDepth(watchDepth, expr);
+
+    // ignore empty expressions & expressions with functions
+    if (!actualExpr || actualExpr.match(/\(.*\)/) || exprWatchDepth === 'one-time') {
+      continue;
+    }
 
     if (exprWatchDepth === 'collection' && supportsWatchCollection) {
       scope.$watchCollection(actualExpr, listener);
     } else if (exprWatchDepth === 'reference' && supportsWatchGroup) {
       watchGroupExpressions.push(actualExpr);
-    } else if (exprWatchDepth === 'one-time') {
-      //do nothing because we handle our one time bindings after this
     } else {
       scope.$watch(actualExpr, listener, exprWatchDepth !== 'reference');
     }
-  });
+  }
 
   if (watchDepth === 'one-time') {
     listener();
@@ -134,7 +139,7 @@ function watchProps(watchDepth, scope, watchExpressions, listener) {
 
 // render React component, with scope[attrs.props] being passed in as the component props
 function renderComponent(component, props, scope, elem) {
-  scope.$evalAsync(function() {
+  scope.$evalAsync(() => {
     ReactDOM.render(React.createElement(component, props), elem[0]);
   });
 }
@@ -154,11 +159,17 @@ function getPropExpression(prop) {
   return Array.isArray(prop) ? prop[0] : prop;
 }
 
-// find the normalized attribute knowing that React props accept any type of capitalization
-function findAttribute(attrs, propName) {
-  const index = Object.keys(attrs).filter(function(attr) {
-    return attr.toLowerCase() === propName.toLowerCase();
-  })[0];
+/**
+ * Finds the normalized attribute knowing that React props accept any type of capitalization and it also handles
+ * kabab case attributes which can be used in case the attribute would also be a standard html attribute and would be
+ * evaluated by the browser as such.
+ * @param attrs All attributes of the component.
+ * @param propName Name of the prop that react component expects.
+ */
+function findAttribute(attrs: string, propName: string): string {
+  const index = Object.keys(attrs).find(attr => {
+    return attr.toLowerCase() === propName.toLowerCase() || attr.toLowerCase() === kebabCase(propName);
+  });
   return attrs[index];
 }
 
@@ -186,14 +197,14 @@ function getPropWatchDepth(defaultWatch, prop) {
 //         }
 //     }));
 //
-const reactComponent = function($injector) {
+const reactComponent = $injector => {
   return {
     restrict: 'E',
     replace: true,
     link: function(scope, elem, attrs) {
       const reactComponent = getReactComponent(attrs.name, $injector);
 
-      const renderMyComponent = function() {
+      const renderMyComponent = () => {
         const scopeProps = scope.$eval(attrs.props);
         const props = applyFunctions(scopeProps, scope);
 
@@ -243,8 +254,8 @@ const reactComponent = function($injector) {
 //
 //     <hello name="name"/>
 //
-const reactDirective = function($injector) {
-  return function(reactComponentName, props, conf, injectableProps) {
+const reactDirective = $injector => {
+  return (reactComponentName, props, conf, injectableProps) => {
     const directive = {
       restrict: 'E',
       replace: true,
@@ -255,11 +266,11 @@ const reactDirective = function($injector) {
         props = props || Object.keys(reactComponent.propTypes || {});
 
         // for each of the properties, get their scope value and set it to scope.props
-        const renderMyComponent = function() {
+        const renderMyComponent = () => {
           let scopeProps = {};
           const config = {};
 
-          props.forEach(function(prop) {
+          props.forEach(prop => {
             const propName = getPropName(prop);
             scopeProps[propName] = scope.$eval(findAttribute(attrs, propName));
             config[propName] = getPropConfig(prop);
@@ -272,8 +283,10 @@ const reactDirective = function($injector) {
 
         // watch each property name and trigger an update whenever something changes,
         // to update scope.props with new values
-        const propExpressions = props.map(function(prop) {
-          return Array.isArray(prop) ? [attrs[getPropName(prop)], getPropConfig(prop)] : attrs[prop];
+        const propExpressions = props.map(prop => {
+          return Array.isArray(prop)
+            ? [findAttribute(attrs, prop[0]), getPropConfig(prop)]
+            : findAttribute(attrs, prop);
         });
 
         // If we don't have any props, then our watch statement won't fire.

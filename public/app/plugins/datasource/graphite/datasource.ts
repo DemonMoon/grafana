@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import * as dateMath from 'app/core/utils/datemath';
+import * as dateMath from '@grafana/ui/src/utils/datemath';
 import { isVersionGtOrEq, SemVersion } from 'app/core/utils/version';
 import gfunc from './gfunc';
 
@@ -16,7 +16,7 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
   this.funcDefs = null;
   this.funcDefsPromise = null;
 
-  this.getQueryOptionsInfo = function() {
+  this.getQueryOptionsInfo = () => {
     return {
       maxDataPoints: true,
       cacheTimeout: true,
@@ -31,8 +31,8 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
 
   this.query = function(options) {
     const graphOptions = {
-      from: this.translateTime(options.rangeRaw.from, false),
-      until: this.translateTime(options.rangeRaw.to, true),
+      from: this.translateTime(options.rangeRaw.from, false, options.timezone),
+      until: this.translateTime(options.rangeRaw.to, true, options.timezone),
       targets: options.targets,
       format: options.format,
       cacheTimeout: options.cacheTimeout || this.cacheTimeout,
@@ -70,7 +70,7 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
     }
   };
 
-  this.convertDataPointsToMs = function(result) {
+  this.convertDataPointsToMs = result => {
     if (!result || !result.data) {
       return [];
     }
@@ -83,7 +83,7 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
     return result;
   };
 
-  this.parseTags = function(tagString) {
+  this.parseTags = tagString => {
     let tags = [];
     tags = tagString.split(',');
     if (tags.length === 1) {
@@ -106,7 +106,7 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
         maxDataPoints: 100,
       };
 
-      return this.query(graphiteQuery).then(function(result) {
+      return this.query(graphiteQuery).then(result => {
         const list = [];
 
         for (let i = 0; i < result.data.length; i++) {
@@ -165,9 +165,9 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
         method: 'GET',
         url:
           '/events/get_data?from=' +
-          this.translateTime(options.range.from, false) +
+          this.translateTime(options.range.from, false, options.timezone) +
           '&until=' +
-          this.translateTime(options.range.to, true) +
+          this.translateTime(options.range.to, true, options.timezone) +
           tags,
       });
     } catch (err) {
@@ -175,11 +175,11 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
     }
   };
 
-  this.targetContainsTemplate = function(target) {
+  this.targetContainsTemplate = target => {
     return templateSrv.variableExists(target.target);
   };
 
-  this.translateTime = function(date, roundUp) {
+  this.translateTime = (date, roundUp, timezone) => {
     if (_.isString(date)) {
       if (date === 'now') {
         return 'now';
@@ -189,7 +189,7 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
         date = date.replace('M', 'mon');
         return date;
       }
-      date = dateMath.parse(date, roundUp);
+      date = dateMath.parse(date, roundUp, timezone);
     }
 
     // graphite' s from filter is exclusive
@@ -218,9 +218,10 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
     if (matches) {
       const expressions = [];
       const exprRegex = /, *([^,]+)/g;
-      let match;
-      while ((match = exprRegex.exec(matches[2])) !== null) {
+      let match = exprRegex.exec(matches[2]);
+      while (match !== null) {
         expressions.push(match[1]);
+        match = exprRegex.exec(matches[2]);
       }
       options.limit = 10000;
       return this.getTagValuesAutoComplete(expressions, matches[1], undefined, options);
@@ -233,9 +234,10 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
       if (matches[1]) {
         expressions.push(matches[1]);
         const exprRegex = /, *([^,]+)/g;
-        let match;
-        while ((match = exprRegex.exec(matches[2])) !== null) {
+        let match = exprRegex.exec(matches[2]);
+        while (match !== null) {
           expressions.push(match[1]);
+          match = exprRegex.exec(matches[2]);
         }
       }
       options.limit = 10000;
@@ -243,18 +245,20 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
     }
 
     const httpOptions: any = {
-      method: 'GET',
+      method: 'POST',
       url: '/metrics/find',
-      params: {
-        query: interpolatedQuery,
+      params: {},
+      data: `query=${interpolatedQuery}`,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
       // for cancellations
       requestId: options.requestId,
     };
 
     if (options.range) {
-      httpOptions.params.from = this.translateTime(options.range.from, false);
-      httpOptions.params.until = this.translateTime(options.range.to, true);
+      httpOptions.params.from = this.translateTime(options.range.from, false, options.timezone);
+      httpOptions.params.until = this.translateTime(options.range.to, true, options.timezone);
     }
 
     return this.doGraphiteRequest(httpOptions).then(results => {
@@ -278,8 +282,8 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
     };
 
     if (options.range) {
-      httpOptions.params.from = this.translateTime(options.range.from, false);
-      httpOptions.params.until = this.translateTime(options.range.to, true);
+      httpOptions.params.from = this.translateTime(options.range.from, false, options.timezone);
+      httpOptions.params.until = this.translateTime(options.range.to, true, options.timezone);
     }
 
     return this.doGraphiteRequest(httpOptions).then(results => {
@@ -303,8 +307,8 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
     };
 
     if (options.range) {
-      httpOptions.params.from = this.translateTime(options.range.from, false);
-      httpOptions.params.until = this.translateTime(options.range.to, true);
+      httpOptions.params.from = this.translateTime(options.range.from, false, options.timezone);
+      httpOptions.params.until = this.translateTime(options.range.to, true, options.timezone);
     }
 
     return this.doGraphiteRequest(httpOptions).then(results => {
@@ -341,8 +345,8 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
       httpOptions.params.limit = options.limit;
     }
     if (options.range) {
-      httpOptions.params.from = this.translateTime(options.range.from, false);
-      httpOptions.params.until = this.translateTime(options.range.to, true);
+      httpOptions.params.from = this.translateTime(options.range.from, false, options.timezone);
+      httpOptions.params.until = this.translateTime(options.range.to, true, options.timezone);
     }
 
     return this.doGraphiteRequest(httpOptions).then(results => {
@@ -377,8 +381,8 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
       httpOptions.params.limit = options.limit;
     }
     if (options.range) {
-      httpOptions.params.from = this.translateTime(options.range.from, false);
-      httpOptions.params.until = this.translateTime(options.range.to, true);
+      httpOptions.params.from = this.translateTime(options.range.from, false, options.timezone);
+      httpOptions.params.until = this.translateTime(options.range.to, true, options.timezone);
     }
 
     return this.doGraphiteRequest(httpOptions).then(results => {
@@ -467,7 +471,7 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
       targets: [{ target: 'constantLine(100)' }],
       maxDataPoints: 300,
     };
-    return this.query(query).then(function() {
+    return this.query(query).then(() => {
       return { status: 'success', message: 'Data source is working' };
     });
   };
@@ -539,7 +543,7 @@ export function GraphiteDatasource(this: any, instanceSettings, $q, backendSrv, 
       }
     }
 
-    _.each(options, function(value, key) {
+    _.each(options, (value, key) => {
       if (_.indexOf(graphiteOptions, key) === -1) {
         return;
       }

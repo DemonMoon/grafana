@@ -50,18 +50,18 @@ const DEFAULT_THEME_LIGHT = 'ace/theme/textmate';
 const DEFAULT_MODE = 'text';
 const DEFAULT_MAX_LINES = 10;
 const DEFAULT_TAB_SIZE = 2;
-const DEFAULT_BEHAVIOURS = true;
+const DEFAULT_BEHAVIORS = true;
 const DEFAULT_SNIPPETS = true;
 
 const editorTemplate = `<div></div>`;
 
-function link(scope, elem, attrs) {
+function link(scope: any, elem: any, attrs: any) {
   // Options
   const langMode = attrs.mode || DEFAULT_MODE;
   const maxLines = attrs.maxLines || DEFAULT_MAX_LINES;
   const showGutter = attrs.showGutter !== undefined;
   const tabSize = attrs.tabSize || DEFAULT_TAB_SIZE;
-  const behavioursEnabled = attrs.behavioursEnabled ? attrs.behavioursEnabled === 'true' : DEFAULT_BEHAVIOURS;
+  const behavioursEnabled = attrs.behavioursEnabled ? attrs.behavioursEnabled === 'true' : DEFAULT_BEHAVIORS;
   const snippetsEnabled = attrs.snippetsEnabled ? attrs.snippetsEnabled === 'true' : DEFAULT_SNIPPETS;
 
   // Initialize editor
@@ -84,7 +84,7 @@ function link(scope, elem, attrs) {
   // disable depreacation warning
   codeEditor.$blockScrolling = Infinity;
   // Padding hacks
-  (codeEditor.renderer as any).setScrollMargin(15, 15);
+  (codeEditor.renderer as any).setScrollMargin(10, 10);
   codeEditor.renderer.setPadding(10);
 
   setThemeMode();
@@ -97,7 +97,7 @@ function link(scope, elem, attrs) {
   textarea.addClass('gf-form-input');
 
   if (scope.codeEditorFocus) {
-    setTimeout(function() {
+    setTimeout(() => {
       textarea.focus();
       const domEl = textarea[0];
       if (domEl.setSelectionRange) {
@@ -116,10 +116,10 @@ function link(scope, elem, attrs) {
   });
 
   // Sync with outer scope - update editor content if model has been changed from outside of directive.
-  scope.$watch('content', (newValue, oldValue) => {
+  scope.$watch('content', (newValue: any, oldValue: any) => {
     const editorValue = codeEditor.getValue();
     if (newValue !== editorValue && newValue !== oldValue) {
-      scope.$$postDigest(function() {
+      scope.$$postDigest(() => {
         setEditorContent(newValue);
       });
     }
@@ -142,7 +142,7 @@ function link(scope, elem, attrs) {
     },
   });
 
-  function setLangMode(lang) {
+  function setLangMode(lang: string) {
     ace.acequire('ace/ext/language_tools');
     codeEditor.setOptions({
       enableBasicAutocompletion: true,
@@ -170,7 +170,7 @@ function link(scope, elem, attrs) {
     codeEditor.setTheme(theme);
   }
 
-  function setEditorContent(value) {
+  function setEditorContent(value: string) {
     codeEditor.setValue(value);
     codeEditor.clearSelection();
   }

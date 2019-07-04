@@ -18,6 +18,8 @@ export default class GraphiteQuery {
   constructor(datasource, target, templateSrv?, scopedVars?) {
     this.datasource = datasource;
     this.target = target;
+    this.templateSrv = templateSrv;
+    this.scopedVars = scopedVars;
     this.parseTarget();
 
     this.removeTagValue = '-- remove tag --';
@@ -27,6 +29,7 @@ export default class GraphiteQuery {
     this.functions = [];
     this.segments = [];
     this.tags = [];
+    this.seriesByTagUsed = false;
     this.error = null;
 
     if (this.target.textEditor) {
@@ -55,17 +58,6 @@ export default class GraphiteQuery {
     }
 
     this.checkOtherSegmentsIndex = this.segments.length - 1;
-    this.checkForSeriesByTag();
-  }
-
-  checkForSeriesByTag() {
-    const seriesByTagFunc = _.find(this.functions, func => func.def.name === 'seriesByTag');
-    if (seriesByTagFunc) {
-      this.seriesByTagUsed = true;
-      seriesByTagFunc.hidden = true;
-      const tags = this.splitSeriesByTagParams(seriesByTagFunc);
-      this.tags = tags;
-    }
   }
 
   getSegmentPathUpTo(index) {
@@ -73,7 +65,7 @@ export default class GraphiteQuery {
 
     return _.reduce(
       arr,
-      function(result, segment) {
+      (result, segment) => {
         return result ? result + '.' + segment.value : segment.value;
       },
       ''
@@ -96,9 +88,17 @@ export default class GraphiteQuery {
 
         innerFunc.updateText();
         this.functions.push(innerFunc);
+
+        // extract tags from seriesByTag function and hide function
+        if (innerFunc.def.name === 'seriesByTag' && !this.seriesByTagUsed) {
+          this.seriesByTagUsed = true;
+          innerFunc.hidden = true;
+          this.tags = this.splitSeriesByTagParams(innerFunc);
+        }
+
         break;
       case 'series-ref':
-        if (this.segments.length > 0) {
+        if (this.segments.length > 0 || this.getSeriesByTagFuncIndex() >= 0) {
           this.addFunctionParameter(func, astNode.value);
         } else {
           this.segments.push(astNode);
@@ -110,7 +110,7 @@ export default class GraphiteQuery {
         this.addFunctionParameter(func, astNode.value);
         break;
       case 'metric':
-        if (this.segments.length > 0) {
+        if (this.segments.length || this.tags.length) {
           this.addFunctionParameter(func, _.join(_.map(astNode.segments, 'value'), '.'));
         } else {
           this.segments = astNode.segments;
@@ -129,18 +129,6 @@ export default class GraphiteQuery {
 
   addFunction(newFunc) {
     this.functions.push(newFunc);
-    this.moveAliasFuncLast();
-  }
-
-  moveAliasFuncLast() {
-    const aliasFunc = _.find(this.functions, function(func) {
-      return func.def.name.startsWith('alias');
-    });
-
-    if (aliasFunc) {
-      this.functions = _.without(this.functions, aliasFunc);
-      this.functions.push(aliasFunc);
-    }
   }
 
   addFunctionParameter(func, value) {
@@ -154,8 +142,19 @@ export default class GraphiteQuery {
     this.functions = _.without(this.functions, func);
   }
 
+  moveFunction(func, offset) {
+    const index = this.functions.indexOf(func);
+    // @ts-ignore
+    _.move(this.functions, index, index + offset);
+  }
+
   updateModelTarget(targets) {
-    // render query
+    const wrapFunction = (target: string, func: any) => {
+      return func.render(target, (value: string) => {
+        return this.templateSrv.replace(value, this.scopedVars);
+      });
+    };
+
     if (!this.target.textEditor) {
       const metricPath = this.getSegmentPathUpTo(this.segments.length).replace(/\.select metric$/, '');
       this.target.target = _.reduce(this.functions, wrapFunction, metricPath);
@@ -295,10 +294,6 @@ export default class GraphiteQuery {
       })
     );
   }
-}
-
-function wrapFunction(target, func) {
-  return func.render(target);
 }
 
 function renderTagString(tag) {

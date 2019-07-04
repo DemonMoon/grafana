@@ -1,7 +1,7 @@
 import { isBoolean, isNumber, sortedUniq, sortedIndexOf, unescape as htmlUnescaped } from 'lodash';
-import moment from 'moment';
 import { saveAs } from 'file-saver';
 import { isNullOrUndefined } from 'util';
+import { dateTime } from '@grafana/ui/src/utils/moment_wrapper';
 
 const DEFAULT_DATETIME_FORMAT = 'YYYY-MM-DDTHH:mm:ssZ';
 const POINT_TIME_INDEX = 1;
@@ -17,7 +17,11 @@ function csvEscaped(text) {
     return text;
   }
 
-  return text.split(QUOTE).join(QUOTE + QUOTE);
+  return text
+    .split(QUOTE)
+    .join(QUOTE + QUOTE)
+    .replace(/^([-+=@])/, "'$1")
+    .replace(/\s+$/, '');
 }
 
 const domParser = new DOMParser();
@@ -41,10 +45,8 @@ function formatSpecialHeader(useExcelHeader) {
 function formatRow(row, addEndRowDelimiter = true) {
   let text = '';
   for (let i = 0; i < row.length; i += 1) {
-    if (isBoolean(row[i]) || isNullOrUndefined(row[i])) {
+    if (isBoolean(row[i]) || isNumber(row[i]) || isNullOrUndefined(row[i])) {
       text += row[i];
-    } else if (isNumber(row[i])) {
-      text += row[i].toLocaleString();
     } else {
       text += `${QUOTE}${csvEscaped(htmlUnescaped(htmlDecoded(row[i])))}${QUOTE}`;
     }
@@ -63,7 +65,7 @@ export function convertSeriesListToCsv(seriesList, dateTimeFormat = DEFAULT_DATE
       text += formatRow(
         [
           seriesList[seriesIndex].alias,
-          moment(seriesList[seriesIndex].datapoints[i][POINT_TIME_INDEX]).format(dateTimeFormat),
+          dateTime(seriesList[seriesIndex].datapoints[i][POINT_TIME_INDEX]).format(dateTimeFormat),
           seriesList[seriesIndex].datapoints[i][POINT_VALUE_INDEX],
         ],
         i < seriesList[seriesIndex].datapoints.length - 1 || seriesIndex < seriesList.length - 1
@@ -84,24 +86,24 @@ export function convertSeriesListToCsvColumns(seriesList, dateTimeFormat = DEFAU
     formatSpecialHeader(excel) +
     formatRow(
       ['Time'].concat(
-        seriesList.map(function(val) {
+        seriesList.map(val => {
           return val.alias;
         })
       )
     );
   // process data
-  seriesList = mergeSeriesByTime(seriesList);
+  const extendedDatapointsList = mergeSeriesByTime(seriesList);
 
   // make text
-  for (let i = 0; i < seriesList[0].datapoints.length; i += 1) {
-    const timestamp = moment(seriesList[0].datapoints[i][POINT_TIME_INDEX]).format(dateTimeFormat);
+  for (let i = 0; i < extendedDatapointsList[0].length; i += 1) {
+    const timestamp = dateTime(extendedDatapointsList[0][i][POINT_TIME_INDEX]).format(dateTimeFormat);
     text += formatRow(
       [timestamp].concat(
-        seriesList.map(function(series) {
-          return series.datapoints[i][POINT_VALUE_INDEX];
+        extendedDatapointsList.map(datapoints => {
+          return datapoints[i][POINT_VALUE_INDEX];
         })
       ),
-      i < seriesList[0].datapoints.length - 1
+      i < extendedDatapointsList[0].length - 1
     );
   }
 
@@ -122,22 +124,23 @@ function mergeSeriesByTime(seriesList) {
   }
   timestamps = sortedUniq(timestamps.sort());
 
+  const result = [];
   for (let i = 0; i < seriesList.length; i++) {
     const seriesPoints = seriesList[i].datapoints;
     const seriesTimestamps = seriesPoints.map(p => p[POINT_TIME_INDEX]);
-    const extendedSeries = [];
-    let pointIndex;
+    const extendedDatapoints = [];
     for (let j = 0; j < timestamps.length; j++) {
-      pointIndex = sortedIndexOf(seriesTimestamps, timestamps[j]);
+      const timestamp = timestamps[j];
+      const pointIndex = sortedIndexOf(seriesTimestamps, timestamp);
       if (pointIndex !== -1) {
-        extendedSeries.push(seriesPoints[pointIndex]);
+        extendedDatapoints.push(seriesPoints[pointIndex]);
       } else {
-        extendedSeries.push([null, timestamps[j]]);
+        extendedDatapoints.push([null, timestamp]);
       }
     }
-    seriesList[i].datapoints = extendedSeries;
+    result.push(extendedDatapoints);
   }
-  return seriesList;
+  return result;
 }
 
 export function exportSeriesListToCsvColumns(seriesList, dateTimeFormat = DEFAULT_DATETIME_FORMAT, excel = false) {

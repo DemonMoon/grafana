@@ -131,14 +131,18 @@ func AlertTest(c *m.ReqContext, dto dtos.AlertTestCommand) Response {
 	}
 
 	backendCmd := alerting.AlertTestCommand{
-		OrgId:     c.OrgId,
+		OrgID:     c.OrgId,
 		Dashboard: dto.Dashboard,
-		PanelId:   dto.PanelId,
+		PanelID:   dto.PanelId,
+		User:      c.SignedInUser,
 	}
 
 	if err := bus.Dispatch(&backendCmd); err != nil {
 		if validationErr, ok := err.(alerting.ValidationError); ok {
 			return Error(422, validationErr.Error(), nil)
+		}
+		if err == m.ErrDataSourceAccessDenied {
+			return Error(403, "Access denied to datasource", err)
 		}
 		return Error(500, "Failed to test rule", err)
 	}
@@ -204,8 +208,37 @@ func GetAlertNotificationByID(c *m.ReqContext) Response {
 		Id:    c.ParamsInt64("notificationId"),
 	}
 
+	if query.Id == 0 {
+		return Error(404, "Alert notification not found", nil)
+	}
+
 	if err := bus.Dispatch(query); err != nil {
 		return Error(500, "Failed to get alert notifications", err)
+	}
+
+	if query.Result == nil {
+		return Error(404, "Alert notification not found", nil)
+	}
+
+	return JSON(200, dtos.NewAlertNotification(query.Result))
+}
+
+func GetAlertNotificationByUID(c *m.ReqContext) Response {
+	query := &m.GetAlertNotificationsWithUidQuery{
+		OrgId: c.OrgId,
+		Uid:   c.Params("uid"),
+	}
+
+	if query.Uid == "" {
+		return Error(404, "Alert notification not found", nil)
+	}
+
+	if err := bus.Dispatch(query); err != nil {
+		return Error(500, "Failed to get alert notifications", err)
+	}
+
+	if query.Result == nil {
+		return Error(404, "Alert notification not found", nil)
 	}
 
 	return JSON(200, dtos.NewAlertNotification(query.Result))
@@ -228,6 +261,25 @@ func UpdateAlertNotification(c *m.ReqContext, cmd m.UpdateAlertNotificationComma
 		return Error(500, "Failed to update alert notification", err)
 	}
 
+	if cmd.Result == nil {
+		return Error(404, "Alert notification not found", nil)
+	}
+
+	return JSON(200, dtos.NewAlertNotification(cmd.Result))
+}
+
+func UpdateAlertNotificationByUID(c *m.ReqContext, cmd m.UpdateAlertNotificationWithUidCommand) Response {
+	cmd.OrgId = c.OrgId
+	cmd.Uid = c.Params("uid")
+
+	if err := bus.Dispatch(&cmd); err != nil {
+		return Error(500, "Failed to update alert notification", err)
+	}
+
+	if cmd.Result == nil {
+		return Error(404, "Alert notification not found", nil)
+	}
+
 	return JSON(200, dtos.NewAlertNotification(cmd.Result))
 }
 
@@ -235,6 +287,19 @@ func DeleteAlertNotification(c *m.ReqContext) Response {
 	cmd := m.DeleteAlertNotificationCommand{
 		OrgId: c.OrgId,
 		Id:    c.ParamsInt64("notificationId"),
+	}
+
+	if err := bus.Dispatch(&cmd); err != nil {
+		return Error(500, "Failed to delete alert notification", err)
+	}
+
+	return Success("Notification deleted")
+}
+
+func DeleteAlertNotificationByUID(c *m.ReqContext) Response {
+	cmd := m.DeleteAlertNotificationWithUidCommand{
+		OrgId: c.OrgId,
+		Uid:   c.Params("uid"),
 	}
 
 	if err := bus.Dispatch(&cmd); err != nil {
@@ -291,7 +356,7 @@ func PauseAlert(c *m.ReqContext, dto dtos.PauseAlertCommand) Response {
 		return Error(500, "", err)
 	}
 
-	var response m.AlertStateType = m.AlertStatePending
+	var response m.AlertStateType = m.AlertStateUnknown
 	pausedState := "un-paused"
 	if cmd.Paused {
 		response = m.AlertStatePaused

@@ -1,24 +1,36 @@
-import moment from 'moment';
 import { MysqlDatasource } from '../datasource';
 import { CustomVariable } from 'app/features/templating/custom_variable';
+import { toUtc, dateTime } from '@grafana/ui/src/utils/moment_wrapper';
+import { BackendSrv } from 'app/core/services/backend_srv';
 
-describe('MySQLDatasource', function() {
+describe('MySQLDatasource', () => {
   const instanceSettings = { name: 'mysql' };
   const backendSrv = {};
-  const templateSrv = {
+  const templateSrv: any = {
     replace: jest.fn(text => text),
   };
 
+  const raw = {
+    from: toUtc('2018-04-25 10:00'),
+    to: toUtc('2018-04-25 11:00'),
+  };
   const ctx = {
     backendSrv,
+    timeSrvMock: {
+      timeRange: () => ({
+        from: raw.from,
+        to: raw.to,
+        raw: raw,
+      }),
+    },
   } as any;
 
   beforeEach(() => {
-    ctx.ds = new MysqlDatasource(instanceSettings, backendSrv, {}, templateSrv);
+    ctx.ds = new MysqlDatasource(instanceSettings, backendSrv as BackendSrv, {} as any, templateSrv, ctx.timeSrvMock);
   });
 
-  describe('When performing annotationQuery', function() {
-    let results;
+  describe('When performing annotationQuery', () => {
+    let results: any;
 
     const annotationName = 'MyAnno';
 
@@ -28,8 +40,8 @@ describe('MySQLDatasource', function() {
         rawQuery: 'select time_sec, text, tags from table;',
       },
       range: {
-        from: moment(1432288354),
-        to: moment(1432288401),
+        from: dateTime(1432288354),
+        to: dateTime(1432288401),
       },
     };
 
@@ -51,16 +63,16 @@ describe('MySQLDatasource', function() {
       },
     };
 
-    beforeEach(function() {
+    beforeEach(() => {
       ctx.backendSrv.datasourceRequest = jest.fn(options => {
         return Promise.resolve({ data: response, status: 200 });
       });
-      ctx.ds.annotationQuery(options).then(function(data) {
+      ctx.ds.annotationQuery(options).then((data: any) => {
         results = data;
       });
     });
 
-    it('should return annotation list', function() {
+    it('should return annotation list', () => {
       expect(results.length).toBe(3);
 
       expect(results[0].text).toBe('some text');
@@ -74,8 +86,8 @@ describe('MySQLDatasource', function() {
     });
   });
 
-  describe('When performing metricFindQuery', function() {
-    let results;
+  describe('When performing metricFindQuery', () => {
+    let results: any;
     const query = 'select * from atable';
     const response = {
       results: {
@@ -94,24 +106,24 @@ describe('MySQLDatasource', function() {
       },
     };
 
-    beforeEach(function() {
+    beforeEach(() => {
       ctx.backendSrv.datasourceRequest = jest.fn(options => {
         return Promise.resolve({ data: response, status: 200 });
       });
-      ctx.ds.metricFindQuery(query).then(function(data) {
+      ctx.ds.metricFindQuery(query).then((data: any) => {
         results = data;
       });
     });
 
-    it('should return list of all column values', function() {
+    it('should return list of all column values', () => {
       expect(results.length).toBe(6);
       expect(results[0].text).toBe('aTitle');
       expect(results[5].text).toBe('some text3');
     });
   });
 
-  describe('When performing metricFindQuery with key, value columns', function() {
-    let results;
+  describe('When performing metricFindQuery with key, value columns', () => {
+    let results: any;
     const query = 'select * from atable';
     const response = {
       results: {
@@ -130,16 +142,16 @@ describe('MySQLDatasource', function() {
       },
     };
 
-    beforeEach(function() {
+    beforeEach(() => {
       ctx.backendSrv.datasourceRequest = jest.fn(options => {
         return Promise.resolve({ data: response, status: 200 });
       });
-      ctx.ds.metricFindQuery(query).then(function(data) {
+      ctx.ds.metricFindQuery(query).then((data: any) => {
         results = data;
       });
     });
 
-    it('should return list of as text, value', function() {
+    it('should return list of as text, value', () => {
       expect(results.length).toBe(3);
       expect(results[0].text).toBe('aTitle');
       expect(results[0].value).toBe('value1');
@@ -148,8 +160,8 @@ describe('MySQLDatasource', function() {
     });
   });
 
-  describe('When performing metricFindQuery with key, value columns and with duplicate keys', function() {
-    let results;
+  describe('When performing metricFindQuery with key, value columns and with duplicate keys', () => {
+    let results: any;
     const query = 'select * from atable';
     const response = {
       results: {
@@ -168,16 +180,16 @@ describe('MySQLDatasource', function() {
       },
     };
 
-    beforeEach(function() {
+    beforeEach(() => {
       ctx.backendSrv.datasourceRequest = jest.fn(options => {
         return Promise.resolve({ data: response, status: 200 });
       });
-      ctx.ds.metricFindQuery(query).then(function(data) {
+      ctx.ds.metricFindQuery(query).then((data: any) => {
         results = data;
       });
     });
 
-    it('should return list of unique keys', function() {
+    it('should return list of unique keys', () => {
       expect(results.length).toBe(1);
       expect(results[0].text).toBe('aTitle');
       expect(results[0].value).toBe('same');
@@ -185,7 +197,7 @@ describe('MySQLDatasource', function() {
   });
 
   describe('When interpolating variables', () => {
-    beforeEach(function() {
+    beforeEach(() => {
       ctx.variable = new CustomVariable({}, {});
     });
 

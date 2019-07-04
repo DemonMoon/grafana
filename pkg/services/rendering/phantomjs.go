@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/grafana/grafana/pkg/log"
+	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/middleware"
 )
 
@@ -36,20 +36,21 @@ func (rs *RenderingService) renderViaPhantomJS(ctx context.Context, opts Opts) (
 	defer middleware.RemoveRenderAuthKey(renderKey)
 
 	phantomDebugArg := "--debug=false"
-	if log.GetLogLevelFor("renderer") >= log.LvlDebug {
+	if log.GetLogLevelFor("rendering") >= log.LvlDebug {
 		phantomDebugArg = "--debug=true"
 	}
 
 	cmdArgs := []string{
 		"--ignore-ssl-errors=true",
-		"--web-security=false",
+		"--web-security=true",
+		"--local-url-access=false",
 		phantomDebugArg,
 		scriptPath,
 		fmt.Sprintf("url=%v", url),
 		fmt.Sprintf("width=%v", opts.Width),
 		fmt.Sprintf("height=%v", opts.Height),
 		fmt.Sprintf("png=%v", pngPath),
-		fmt.Sprintf("domain=%v", rs.getLocalDomain()),
+		fmt.Sprintf("domain=%v", rs.domain),
 		fmt.Sprintf("timeout=%v", opts.Timeout.Seconds()),
 		fmt.Sprintf("renderKey=%v", renderKey),
 	}
@@ -64,12 +65,25 @@ func (rs *RenderingService) renderViaPhantomJS(ctx context.Context, opts Opts) (
 	cmd := exec.CommandContext(commandCtx, binPath, cmdArgs...)
 	cmd.Stderr = cmd.Stdout
 
+	timezone := ""
+
 	if opts.Timezone != "" {
+		timezone = isoTimeOffsetToPosixTz(opts.Timezone)
 		baseEnviron := os.Environ()
-		cmd.Env = appendEnviron(baseEnviron, "TZ", isoTimeOffsetToPosixTz(opts.Timezone))
+		cmd.Env = appendEnviron(baseEnviron, "TZ", timezone)
 	}
 
+	rs.log.Debug("executing Phantomjs", "binPath", binPath, "cmdArgs", cmdArgs, "timezone", timezone)
+
 	out, err := cmd.Output()
+
+	if out != nil {
+		rs.log.Debug("Phantomjs output", "out", string(out))
+	}
+
+	if err != nil {
+		rs.log.Debug("Phantomjs error", "error", err)
+	}
 
 	// check for timeout first
 	if commandCtx.Err() == context.DeadlineExceeded {
@@ -81,8 +95,6 @@ func (rs *RenderingService) renderViaPhantomJS(ctx context.Context, opts Opts) (
 		rs.log.Error("Phantomjs exited with non zero exit code", "error", err)
 		return nil, err
 	}
-
-	rs.log.Debug("Phantomjs output", "out", string(out))
 
 	rs.log.Debug("Image rendered", "path", pngPath)
 	return &RenderResult{FilePath: pngPath}, nil

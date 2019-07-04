@@ -1,32 +1,41 @@
-import angular from 'angular';
 import _ from 'lodash';
 import $ from 'jquery';
-import rst2html from 'rst2html';
+import coreModule from 'app/core/core_module';
 
 /** @ngInject */
 export function graphiteFuncEditor($compile, templateSrv, popoverSrv) {
-  const funcSpanTemplate = '<a ng-click="">{{func.def.name}}</a><span>(</span>';
+  const funcSpanTemplate = `
+    <function-editor
+      func="func"
+      onRemove="ctrl.handleRemoveFunction"
+      onMoveLeft="ctrl.handleMoveLeft"
+      onMoveRight="ctrl.handleMoveRight"
+    /><span>(</span>
+  `;
   const paramTemplate =
     '<input type="text" style="display:none"' + ' class="input-small tight-form-func-param"></input>';
-
-  const funcControlsTemplate = `
-    <div class="tight-form-func-controls">
-      <span class="pointer fa fa-arrow-left"></span>
-      <span class="pointer fa fa-question-circle"></span>
-      <span class="pointer fa fa-remove" ></span>
-      <span class="pointer fa fa-arrow-right"></span>
-    </div>`;
 
   return {
     restrict: 'A',
     link: function postLink($scope, elem) {
       const $funcLink = $(funcSpanTemplate);
-      const $funcControls = $(funcControlsTemplate);
       const ctrl = $scope.ctrl;
       const func = $scope.func;
       let scheduledRelink = false;
       let paramCountAtLink = 0;
       let cancelBlur = null;
+
+      ctrl.handleRemoveFunction = func => {
+        ctrl.removeFunction(func);
+      };
+
+      ctrl.handleMoveLeft = func => {
+        ctrl.moveFunction(func, -1);
+      };
+
+      ctrl.handleMoveRight = func => {
+        ctrl.moveFunction(func, 1);
+      };
 
       function clickFuncParam(this: any, paramIndex) {
         /*jshint validthis:true */
@@ -57,7 +66,7 @@ export function graphiteFuncEditor($compile, templateSrv, popoverSrv) {
 
         if (!scheduledRelink) {
           scheduledRelink = true;
-          setTimeout(function() {
+          setTimeout(() => {
             relink();
             scheduledRelink = false;
           }, 200);
@@ -68,7 +77,7 @@ export function graphiteFuncEditor($compile, templateSrv, popoverSrv) {
         if (index < func.def.params.length) {
           return func.def.params[index];
         }
-        if (_.last(func.def.params).multiple) {
+        if ((_.last(func.def.params) as any).multiple) {
           return _.assign({}, _.last(func.def.params), { optional: true });
         }
         return {};
@@ -93,7 +102,7 @@ export function graphiteFuncEditor($compile, templateSrv, popoverSrv) {
 
         scheduledRelinkIfNeeded();
 
-        $scope.$apply(function() {
+        $scope.$apply(() => {
           ctrl.targetChanged();
         });
 
@@ -113,7 +122,7 @@ export function graphiteFuncEditor($compile, templateSrv, popoverSrv) {
         const inputElem = this;
         // happens long before the click event on the typeahead options
         // need to have long delay because the blur
-        cancelBlur = setTimeout(function() {
+        cancelBlur = setTimeout(() => {
           switchToLink(inputElem, paramIndex);
         }, 200);
       }
@@ -135,7 +144,7 @@ export function graphiteFuncEditor($compile, templateSrv, popoverSrv) {
 
         let options = paramDef(paramIndex).options;
         if (paramDef(paramIndex).type === 'int') {
-          options = _.map(options, function(val) {
+          options = _.map(options, val => {
             return val.toString();
           });
         }
@@ -144,7 +153,7 @@ export function graphiteFuncEditor($compile, templateSrv, popoverSrv) {
           source: options,
           minLength: 0,
           items: 20,
-          updater: function(value) {
+          updater: value => {
             $input.val(value);
             switchToLink($input[0], paramIndex);
             return value;
@@ -158,41 +167,25 @@ export function graphiteFuncEditor($compile, templateSrv, popoverSrv) {
         };
       }
 
-      function toggleFuncControls() {
-        const targetDiv = elem.closest('.tight-form');
-
-        if (elem.hasClass('show-function-controls')) {
-          elem.removeClass('show-function-controls');
-          targetDiv.removeClass('has-open-function');
-          $funcControls.hide();
-          return;
-        }
-
-        elem.addClass('show-function-controls');
-        targetDiv.addClass('has-open-function');
-
-        $funcControls.show();
-      }
-
       function addElementsAndCompile() {
-        $funcControls.appendTo(elem);
         $funcLink.appendTo(elem);
 
-        const defParams = _.clone(func.def.params);
-        const lastParam = _.last(func.def.params);
+        const defParams: any = _.clone(func.def.params);
+        const lastParam: any = _.last(func.def.params);
 
         while (func.params.length >= defParams.length && lastParam && lastParam.multiple) {
           defParams.push(_.assign({}, lastParam, { optional: true }));
         }
 
-        _.each(defParams, function(param, index) {
+        _.each(defParams, (param: any, index: number) => {
           if (param.optional && func.params.length < index) {
             return false;
           }
 
           let paramValue = templateSrv.highlightVariablesAsHtml(func.params[index]);
+          const hasValue = paramValue !== null && paramValue !== undefined;
 
-          const last = index >= func.params.length - 1 && param.optional && !paramValue;
+          const last = index >= func.params.length - 1 && param.optional && !hasValue;
           if (last && param.multiple) {
             paramValue = '+';
           }
@@ -205,7 +198,7 @@ export function graphiteFuncEditor($compile, templateSrv, popoverSrv) {
             '<a ng-click="" class="graphite-func-param-link' +
               (last ? ' query-part__last' : '') +
               '">' +
-              (paramValue || '&nbsp;') +
+              (hasValue ? paramValue : '&nbsp;') +
               '</a>'
           );
           const $input = $(paramTemplate);
@@ -236,7 +229,7 @@ export function graphiteFuncEditor($compile, templateSrv, popoverSrv) {
       function ifJustAddedFocusFirstParam() {
         if ($scope.func.added) {
           $scope.func.added = false;
-          setTimeout(function() {
+          setTimeout(() => {
             elem
               .find('.graphite-func-param-link')
               .first()
@@ -245,69 +238,10 @@ export function graphiteFuncEditor($compile, templateSrv, popoverSrv) {
         }
       }
 
-      function registerFuncControlsToggle() {
-        $funcLink.click(toggleFuncControls);
-      }
-
-      function registerFuncControlsActions() {
-        $funcControls.click(function(e) {
-          const $target = $(e.target);
-          if ($target.hasClass('fa-remove')) {
-            toggleFuncControls();
-            $scope.$apply(function() {
-              ctrl.removeFunction($scope.func);
-            });
-            return;
-          }
-
-          if ($target.hasClass('fa-arrow-left')) {
-            $scope.$apply(function() {
-              _.move(ctrl.queryModel.functions, $scope.$index, $scope.$index - 1);
-              ctrl.targetChanged();
-            });
-            return;
-          }
-
-          if ($target.hasClass('fa-arrow-right')) {
-            $scope.$apply(function() {
-              _.move(ctrl.queryModel.functions, $scope.$index, $scope.$index + 1);
-              ctrl.targetChanged();
-            });
-            return;
-          }
-
-          if ($target.hasClass('fa-question-circle')) {
-            const funcDef = ctrl.datasource.getFuncDef(func.def.name);
-            if (funcDef && funcDef.description) {
-              popoverSrv.show({
-                element: e.target,
-                position: 'bottom left',
-                classNames: 'drop-popover drop-function-def',
-                template: `
-                  <div style="overflow:auto;max-height:30rem;">
-                    <h4> ${funcDef.name} </h4>
-                    ${rst2html(funcDef.description)}
-                  </div>`,
-                openOn: 'click',
-              });
-            } else {
-              window.open(
-                'http://graphite.readthedocs.org/en/latest/functions.html#graphite.render.functions.' + func.def.name,
-                '_blank'
-              );
-            }
-            return;
-          }
-        });
-      }
-
       function relink() {
         elem.children().remove();
-
         addElementsAndCompile();
         ifJustAddedFocusFirstParam();
-        registerFuncControlsToggle();
-        registerFuncControlsActions();
       }
 
       relink();
@@ -315,4 +249,4 @@ export function graphiteFuncEditor($compile, templateSrv, popoverSrv) {
   };
 }
 
-angular.module('grafana.directives').directive('graphiteFuncEditor', graphiteFuncEditor);
+coreModule.directive('graphiteFuncEditor', graphiteFuncEditor);
