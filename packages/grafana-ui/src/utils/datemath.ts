@@ -1,6 +1,7 @@
 import includes from 'lodash/includes';
 import isDate from 'lodash/isDate';
 import moment, { unitOfTime } from 'moment';
+import _ from 'lodash';
 
 const units: unitOfTime.Base[] = ['y', 'M', 'w', 'd', 'h', 'm', 's'];
 
@@ -81,6 +82,84 @@ export function isValid(text: string | moment.Moment): boolean {
   }
 
   return false;
+}
+
+export function parseMillsTime(mathString: string) {
+  let i = 0;
+  const len = mathString.length;
+  let t = 0;
+  while (i < len) {
+    const c = mathString.charAt(i++);
+    let type;
+    let num;
+    let unit;
+
+    if (c === '/') {
+      type = 0;
+    } else if (c === '+') {
+      type = 1;
+    } else if (c === '-') {
+      type = 2;
+    } else {
+      return undefined;
+    }
+
+    if (isNaN(parseInt(mathString.charAt(i), 10))) {
+      num = 1;
+    } else if (mathString.length === 2) {
+      num = mathString.charAt(i);
+    } else {
+      const numFrom = i;
+      while (!isNaN(parseInt(mathString.charAt(i), 10))) {
+        i++;
+        if (i > 10) {
+          return undefined;
+        }
+      }
+      num = parseInt(mathString.substring(numFrom, i), 10);
+    }
+
+    if (type === 0) {
+      // rounding is only allowed on whole, single, units (eg M or 1M, not 0.5M or 2M)
+      if (num !== 1) {
+        return undefined;
+      }
+    }
+    unit = mathString.charAt(i++);
+
+    if (!_.includes(units, unit)) {
+      return undefined;
+    } else {
+      if (type === 0) {
+      } else if (type === 1) {
+        t += getTime(unit, num);
+      } else if (type === 2) {
+        t -= getTime(unit, num);
+      }
+    }
+  }
+  return t;
+}
+export function getTime(units: string, num: number): number {
+  switch (units) {
+    case 'y':
+      return num * 6048e5;
+    case 'w':
+      return num * 6048e5;
+    case 'd':
+      return num * 864e5;
+    case 'h':
+      return num * 36e5;
+    case 'm':
+      return num * 6e4;
+    case 's':
+      return num * 1000;
+    // Math.floor prevents floating point math errors here
+    case 'ms':
+      return num;
+    default:
+      return 0;
+  }
 }
 
 /**
