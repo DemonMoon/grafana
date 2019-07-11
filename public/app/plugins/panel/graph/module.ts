@@ -241,36 +241,36 @@ class GraphCtrl extends MetricsPanelCtrl {
       return;
     }
 
-    var diffs = [];
-    for (let diff of this.panel.seriesDiffs) {
+    const diffs = [];
+    for (const diff of this.panel.seriesDiffs) {
       if (!diff.aliasDiffA || !diff.aliasDiffB || !diff.aliasOper) {
         continue;
       }
-      var a = this.getSeries(diff.aliasDiffA);
-      var b = this.getSeries(diff.aliasDiffB);
+      const a = this.getSeries(diff.aliasDiffA);
+      const b = this.getSeries(diff.aliasDiffB);
       if (!a || !b) {
         continue;
       }
-      var t = diff.name ? diff.name : a.alias + diff.aliasOper + b.alias;
-      var datalist = { datapoints: this.diffList(a.datapoints, b.datapoints, diff.aliasOper), target: t };
+      const t = diff.name ? diff.name : a.alias + diff.aliasOper + b.alias;
+      const datalist = { datapoints: this.diffList(a.datapoints, b.datapoints, diff.aliasOper), target: t };
       diffs.push(datalist);
     }
 
-    var s1 = this.processor.getSeriesList({
+    const s1 = this.processor.getSeriesList({
       dataList: diffs,
       range: this.range,
     });
-    for (let s of this.seriesDiff) {
-      var i = this.seriesList.indexOf(s);
+    for (const s of this.seriesDiff) {
+      const i = this.seriesList.indexOf(s);
       if (i >= 0) {
         this.seriesList.splice(i, 1);
       }
     }
     this.seriesDiff = s1;
-    for (let s of s1) {
+    for (const s of s1) {
       this.seriesList.push(s);
     }
-    for (let series of this.seriesList) {
+    for (const series of this.seriesList) {
       series.applySeriesOverrides(this.panel.seriesOverrides);
 
       if (series.unit) {
@@ -279,12 +279,12 @@ class GraphCtrl extends MetricsPanelCtrl {
     }
   }
   diffList(d1, d2, oper) {
-    var dd = [];
-    for (var i = 0; i < d1.length; i++) {
-      var a1 = d1[i];
-      var a2 = d2[i];
-      var d = [];
-      for (var j = 0; j < a1.length - 1; j++) {
+    const dd = [];
+    for (let i = 0; i < d1.length; i++) {
+      const a1 = d1[i];
+      const a2 = d2[i];
+      const d = [];
+      for (let j = 0; j < a1.length - 1; j++) {
         d[j] = this.diff(a1[j], a2[j], oper);
       }
       d[a1.length - 1] = a1[a1.length - 1];
@@ -308,11 +308,12 @@ class GraphCtrl extends MetricsPanelCtrl {
     }
   }
   getSeries(name) {
-    for (let series of this.seriesList) {
+    for (const series of this.seriesList) {
       if (series.alias === name) {
         return series;
       }
     }
+    return null;
   }
 
   onColorChange = (series, color) => {

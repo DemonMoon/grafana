@@ -7,6 +7,9 @@ import { getExploreUrl } from 'app/core/utils/explore';
 import { applyPanelTimeOverrides, getResolution } from 'app/features/dashboard/utils/panel';
 import { ContextSrv } from 'app/core/services/context_srv';
 import { toLegacyResponseData, isSeriesData, LegacyResponseData, TimeRange } from '@grafana/ui';
+
+import * as dateMath from '@grafana/ui/src/utils/datemath';
+import * as rangeUtil from '@grafana/ui/src/utils/rangeutil';
 import { Unsubscribable } from 'rxjs';
 
 class MetricsPanelCtrl extends PanelCtrl {
@@ -177,29 +180,29 @@ class MetricsPanelCtrl extends PanelCtrl {
     if (!this.panel.compareTime) {
       return result;
     }
-    var timeShiftInterpolated = this.templateSrv.replace(this.panel.compareTime, this.panel.scopedVars);
-    var timeShiftInfo = rangeUtil.describeTextRange(timeShiftInterpolated);
+    const timeShiftInterpolated = this.templateSrv.replace(this.panel.compareTime, this.panel.scopedVars);
+    const timeShiftInfo = rangeUtil.describeTextRange(timeShiftInterpolated);
     if (timeShiftInfo.invalid) {
       // this.timeInfo = 'invalid timeshift';
       return result;
     }
 
-    var scopedVars = Object.assign({}, this.panel.scopedVars, {
+    const scopedVars = Object.assign({}, this.panel.scopedVars, {
       __interval: { text: this.interval, value: this.interval },
       __interval_ms: { text: this.intervalMs, value: this.intervalMs },
     });
-    var timeShift = '-' + timeShiftInterpolated;
+    const timeShift = '-' + timeShiftInterpolated;
     console.log(this.range);
     console.log(typeof this.range.from);
-    var time1 = this.range.from.clone();
+    const time1 = this.range.from.clone();
     console.log(time1);
-    var time2 = this.range.to.clone();
-    var from = dateMath.parseDateMath(timeShift, time1, false);
-    var to = dateMath.parseDateMath(timeShift, time2, true);
-    var raw = { from: from, to: to };
+    const time2 = this.range.to.clone();
+    const from = dateMath.parseDateMath(timeShift, time1, false);
+    const to = dateMath.parseDateMath(timeShift, time2, true);
+    const raw = { from: from, to: to };
 
-    var rangeC = { from: from, to: to, raw: raw };
-    var metricsQuery2 = {
+    const rangeC = { from: from, to: to, raw: raw };
+    const metricsQuery2 = {
       timezone: this.dashboard.getTimezone(),
       panelId: this.panel.id,
       dashboardId: this.dashboard.id,
@@ -212,7 +215,7 @@ class MetricsPanelCtrl extends PanelCtrl {
       scopedVars: scopedVars,
       cacheTimeout: this.panel.cacheTimeout,
     };
-    var c = this.datasource.query(metricsQuery2);
+    const c = this.datasource.query(metricsQuery2);
     this.compareData = result;
     return c;
   }
@@ -224,33 +227,33 @@ class MetricsPanelCtrl extends PanelCtrl {
       result = { data: [] };
       return result;
     }
-    var timeShiftInterpolated = this.templateSrv.replace(this.panel.compareTime, this.panel.scopedVars);
-    var timeShiftInfo = rangeUtil.describeTextRange(timeShiftInterpolated);
+    const timeShiftInterpolated = this.templateSrv.replace(this.panel.compareTime, this.panel.scopedVars);
+    const timeShiftInfo = rangeUtil.describeTextRange(timeShiftInterpolated);
     if (timeShiftInfo.invalid) {
       // this.timeInfo = 'invalid timeshift';
       return result;
     }
-    var timeShift = '+' + timeShiftInterpolated;
-    var t1 = dateMath.parseMillsTime(timeShift);
-    for (var i = 0; i < result.data.length; i++) {
-      var r = result.data[i];
+    const timeShift = '+' + timeShiftInterpolated;
+    const t1 = dateMath.parseMillsTime(timeShift);
+    for (let i = 0; i < result.data.length; i++) {
+      const r = result.data[i];
       r.target = compareTimeName ? r.target + ' - ' + compareTimeName : r.target + ' - ' + compareTime;
-      for (var j = 0; j < r.datapoints.length; j++) {
-        var len = r.datapoints[j].length;
-        var t = r.datapoints[j][len - 1];
+      for (let j = 0; j < r.datapoints.length; j++) {
+        const len = r.datapoints[j].length;
+        const t = r.datapoints[j][len - 1];
         r.datapoints[j][len - 1] = t + t1;
       }
     }
     return result;
   }
   handleQueryResult(res) {
-    this.setTimeQueryEnd();
+    // this.setTimeQueryEnd();
     this.loading = false;
-    var result = res;
+    let result = res;
     //check compare
     if (this.panel.compareTime) {
       result = this.compareData;
-      var d = [];
+      const d = [];
       result.data = d.concat(
         result.data,
         this.getCompareData(res, this.panel.compareTime, this.panel.compareTimeName).data
