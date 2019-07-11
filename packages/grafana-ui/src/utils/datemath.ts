@@ -126,7 +126,8 @@ export function parseMillsTime(mathString: string) {
     }
     unit = mathString.charAt(i++);
 
-    if (!_.includes(units, unit)) {
+    if (!
+      (units, unit)) {
       return undefined;
     } else {
       if (type === 0) {
