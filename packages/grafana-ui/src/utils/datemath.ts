@@ -1,7 +1,6 @@
 import includes from 'lodash/includes';
 import isDate from 'lodash/isDate';
 import moment, { unitOfTime } from 'moment';
-import _ from 'lodash';
 
 const units: unitOfTime.Base[] = ['y', 'M', 'w', 'd', 'h', 'm', 's'];
 
